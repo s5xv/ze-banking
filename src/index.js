@@ -10,6 +10,8 @@ import * as ledger from "./ledger.js";
 import * as treasury from "./treasury.js";
 import * as deposits from "./deposits.js";
 import * as withdrawals from "./withdrawals.js";
+import * as auth from "./auth.js";
+import * as customer from "./customer.js";
 import { formatCents } from "./money.js";
 
 const json = (obj, status = 200) =>
@@ -119,6 +121,37 @@ export default {
     const path = url.pathname.replace(/\/+$/, "") || "/";
 
     try {
+      // ----- auth (no session required) -----
+      if (path === "/auth/login") return auth.startLogin(env, request);
+      if (path === "/auth/callback") return await auth.finishLogin(env, env.DB, request);
+      if (path === "/auth/logout") return auth.logout();
+
+      // ----- customer app -----
+      if (path === "/app" || path.startsWith("/app/")) {
+        const user = await auth.getSession(env, env.DB, request);
+        if (!user) {
+          return Response.redirect(`${url.origin}/auth/login?next=${encodeURIComponent(path)}`, 302);
+        }
+
+        if (request.method === "POST") {
+          if (path === "/app/withdraw") return await customer.doWithdraw(env, env.DB, user, request);
+          if (path === "/app/transfer") return await customer.doTransfer(env, env.DB, user, request);
+          if (path === "/app/verify") return await customer.doVerify(env, env.DB, user, request);
+          return new Response("Method not allowed", { status: 405 });
+        }
+
+        if (path === "/app") return await customer.pageHome(env, env.DB, user);
+        if (path === "/app/deposit") return await customer.pageDeposit(env, env.DB, user);
+        if (path === "/app/withdraw") return await customer.pageWithdraw(env, env.DB, user);
+        if (path === "/app/transfer") return await customer.pageTransfer(env, env.DB, user);
+        if (path === "/app/verify") return await customer.pageVerify(env, env.DB, user);
+
+        const m = path.match(/^\/app\/account\/(\d+)$/);
+        if (m) return await customer.pageAccount(env, env.DB, user, parseInt(m[1], 10));
+
+        return html(page("Not found", `<h1>404</h1>`), 404);
+      }
+
       if (path === "/" || path === "/status") return await statusPage(env);
 
       if (path === "/health") return json({ ok: true, service: "ze-bank" });
