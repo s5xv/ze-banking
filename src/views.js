@@ -64,14 +64,21 @@ const STYLE = `<style>
     -webkit-font-smoothing:antialiased}
   a{color:inherit;text-decoration:none}
   .wrap{max-width:980px;margin:0 auto;padding:0 20px}
+  /* The header needs more room than the content column, otherwise six nav
+     links plus the account controls wrap onto a second line. */
+  .top .wrap{max-width:1180px}
   header.top{background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
-  .top .wrap{display:flex;align-items:center;gap:20px;min-height:60px}
+  .top .wrap{display:flex;align-items:center;gap:16px;min-height:60px}
   .brand{font-weight:800;font-size:18px;letter-spacing:-.3px;flex:none}
   .brand span{color:var(--accent)}
-  .top nav{display:flex;gap:18px;flex:1;flex-wrap:wrap}
-  .top nav a{color:var(--muted);font-weight:600;font-size:14px}
+  .navpanel{display:flex;align-items:center;gap:16px;flex:1;min-width:0}
+  .top nav{display:flex;gap:16px;flex-wrap:nowrap}
+  .top nav a{color:var(--muted);font-weight:600;font-size:14px;white-space:nowrap}
   .top nav a:hover,.top nav a.on{color:var(--text)}
   .spacer{flex:1}
+  /* Burger, pure CSS. Hidden until the links stop fitting. */
+  #navtoggle{position:absolute;opacity:0;pointer-events:none}
+  .burger{display:none}
   .iconbtn{background:none;border:1px solid var(--line);color:var(--muted);cursor:pointer;
     border-radius:8px;padding:6px 10px;font-size:14px}
   h1{font-size:26px;margin:0 0 4px;letter-spacing:-.4px}
@@ -121,17 +128,31 @@ const STYLE = `<style>
   .notice.warn{border-left-color:var(--warn)}
   .empty{color:var(--muted);text-align:center;padding:28px;border:1px dashed var(--line);border-radius:12px}
   footer{border-top:1px solid var(--line);color:var(--muted);font-size:13px;padding:24px 0;margin-top:40px}
+  /* Below this the links no longer fit on one line, so collapse rather than
+     wrap. Wrapping made the sticky header two rows tall with the brand
+     floating in the middle of it. */
+  @media(max-width:1000px){
+    .top .wrap{flex-wrap:wrap;gap:0;padding-top:8px;padding-bottom:8px;min-height:0}
+    .burger{display:flex;flex-direction:column;justify-content:center;gap:5px;
+      margin-left:auto;cursor:pointer;padding:10px;flex:none}
+    .burger span{display:block;width:22px;height:2px;background:var(--text);border-radius:2px}
+    .navpanel{display:none;width:100%;flex-direction:column;align-items:stretch;gap:0}
+    #navtoggle:checked ~ .navpanel{display:flex}
+    .top nav{flex-direction:column;flex-wrap:nowrap;width:100%;gap:0}
+    .top nav a{padding:13px 2px;border-top:1px solid var(--line);font-size:15px}
+    .navpanel .spacer{display:none}
+    .navpanel .iconbtn,.navpanel .btn{margin:10px 0 4px;align-self:flex-start}
+  }
   @media(max-width:640px){
-    .top nav{gap:14px}
-    .top nav a{font-size:13px}
     h1{font-size:22px}
     .balance{font-size:26px}
     .card{padding:16px}
+    .cards.c2,.cards.c3{grid-template-columns:1fr}
   }
 </style>`;
 
 export function layout(title, body, { user = null, active = "" } = {}) {
-  const nav = user
+  const inner = user
     ? `<nav>
          <a href="/app" class="${active === "home" ? "on" : ""}">Accounts</a>
          <a href="/app/deposit" class="${active === "deposit" ? "on" : ""}">Deposit</a>
@@ -143,9 +164,14 @@ export function layout(title, body, { user = null, active = "" } = {}) {
        <div class="spacer"></div>
        <button class="iconbtn" onclick="__toggleTheme()" title="Light / dark">◐</button>
        <a class="btn ghost sm" href="/auth/logout">Log out</a>`
-    : `<div class="spacer"></div>
+    : `<nav></nav>
+       <div class="spacer"></div>
        <button class="iconbtn" onclick="__toggleTheme()" title="Light / dark">◐</button>
        <a class="btn sm" href="/auth/login">Log in with Discord</a>`;
+
+  const nav = `<input type="checkbox" id="navtoggle" aria-label="Toggle menu">
+    <label class="burger" for="navtoggle"><span></span><span></span><span></span></label>
+    <div class="navpanel">${inner}</div>`;
 
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
