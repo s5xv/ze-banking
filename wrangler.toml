@@ -1,0 +1,35 @@
+name = "ze-bank"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+# Pin the account so wrangler never shows the "Select an account" prompt.
+# account_id = "PASTE-ZE-ACCOUNT-ID"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ze-bank"
+database_id = "PASTE-AFTER-wrangler-d1-create"
+
+# Deposit ingestion + reconciliation every 5 minutes; interest is checked
+# hourly and only acts on the 1st (the UNIQUE(account_id, period) constraint
+# makes running it more often harmless).
+[triggers]
+crons = ["*/5 * * * *", "0 * * * *"]
+
+[vars]
+BANK_NAME = "Z&E Bank"
+
+# ---------------------------------------------------------------------------
+# SECRETS — never in this file.
+#
+#   npx wrangler secret put DC_API_TOKEN        # BUSINESS JWT, /treasuryapi business issue
+#   npx wrangler secret put POOL_ACCOUNT_ID     # firm account holding customer funds
+#   npx wrangler secret put TOKEN_SECRET        # signs session cookies
+#   npx wrangler secret put DISCORD_CLIENT_ID
+#   npx wrangler secret put DISCORD_CLIENT_SECRET
+#   npx wrangler secret put WEBHOOK_SECRET      # returned by registerWebhook()
+#
+# DC_API_TOKEN can move every coin the bank holds. Treat it accordingly:
+# secret only, rotate via /api/v1/auth/rotate on any suspicion, and never let
+# it reach a client bundle or a log line.
+# ---------------------------------------------------------------------------

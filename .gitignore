@@ -1,0 +1,10 @@
+node_modules/
+.wrangler/
+dist/
+
+# The Treasury key can move the bank's entire balance. Nothing that could
+# contain it goes near git.
+.dev.vars
+.env
+.env.*
+*.pem
