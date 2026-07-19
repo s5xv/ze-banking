@@ -196,8 +196,13 @@ export default {
           if (path === "/admin/adjust") return await admin.doAdjust(env, db, user, request);
           if (path === "/admin/settings") return await admin.doSettings(env, db, user, request);
           if (path === "/admin/webhooks") return await admin.doWebhookAction(env, db, user, request);
-          const cm = path.match(/^\/admin\/customer\/(\d+)$/);
-          if (cm) return await admin.doCustomerAction(env, db, user, parseInt(cm[1], 10), request);
+
+          let am;
+          if ((am = path.match(/^\/admin\/customer\/(\d+)$/)))
+            return await admin.doCustomerAction(env, db, user, parseInt(am[1], 10), request);
+          if ((am = path.match(/^\/admin\/business\/(\d+)$/)))
+            return await admin.doBusinessAction(env, db, user, parseInt(am[1], 10), request);
+
           return new Response("Method not allowed", { status: 405 });
         }
 
@@ -206,14 +211,20 @@ export default {
         if (path === "/admin/deposits") return await admin.pageDeposits(env, db, user);
         if (path === "/admin/customers")
           return await admin.pageCustomers(env, db, user, url.searchParams.get("q") || "");
-        if (path === "/admin/adjust") return await admin.pageAdjust(env, db, user);
+        if (path === "/admin/adjust")
+          return await admin.pageAdjust(env, db, user, "", url.searchParams.get("account") || "");
+        if (path === "/admin/businesses")
+          return await admin.pageBusinesses(env, db, user, url.searchParams.get("q") || "");
         if (path === "/admin/reconciliation") return await admin.pageReconciliation(env, db, user);
         if (path === "/admin/settings") return await admin.pageSettings(env, db, user);
         if (path === "/admin/webhooks") return await admin.pageWebhooks(env, db, user);
         if (path === "/admin/audit") return await admin.pageAudit(env, db, user);
 
-        const cm = path.match(/^\/admin\/customer\/(\d+)$/);
-        if (cm) return await admin.pageCustomer(env, db, user, parseInt(cm[1], 10));
+        let ap;
+        if ((ap = path.match(/^\/admin\/customer\/(\d+)$/)))
+          return await admin.pageCustomer(env, db, user, parseInt(ap[1], 10));
+        if ((ap = path.match(/^\/admin\/business\/(\d+)$/)))
+          return await admin.pageBusinessDetail(env, db, user, parseInt(ap[1], 10));
 
         return html(page("Not found", `<h1>404</h1>`), 404);
       }
