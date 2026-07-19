@@ -15,6 +15,7 @@ import * as customer from "./customer.js";
 import * as admin from "./admin.js";
 import * as interest from "./interest.js";
 import * as business from "./business.js";
+import * as businessui from "./businessui.js";
 import { formatCents } from "./money.js";
 
 const json = (obj, status = 200) =>
@@ -141,6 +142,20 @@ export default {
           if (path === "/app/transfer") return await customer.doTransfer(env, env.DB, user, request);
           if (path === "/app/verify") return await customer.doVerify(env, env.DB, user, request);
           if (path === "/app/accounts/open") return await customer.doOpenAccount(env, env.DB, user, request);
+          if (path === "/app/business") return await businessui.doCreateBusiness(env, env.DB, user, request);
+
+          let bm;
+          if ((bm = path.match(/^\/app\/business\/(\d+)\/members$/)))
+            return await businessui.doMemberAction(env, env.DB, user, parseInt(bm[1], 10), request);
+          if ((bm = path.match(/^\/app\/business\/(\d+)\/tier$/)))
+            return await businessui.doSetTier(env, env.DB, user, parseInt(bm[1], 10), request);
+          if ((bm = path.match(/^\/app\/business\/(\d+)\/pay$/)))
+            return await businessui.doBusinessPay(env, env.DB, user, parseInt(bm[1], 10), request);
+          if ((bm = path.match(/^\/app\/business\/(\d+)\/logo$/)))
+            return await businessui.doLogo(env, env.DB, user, parseInt(bm[1], 10), request);
+          if ((bm = path.match(/^\/app\/business\/(\d+)\/profile$/)))
+            return await businessui.doProfile(env, env.DB, user, parseInt(bm[1], 10), request);
+
           return new Response("Method not allowed", { status: 405 });
         }
 
@@ -150,8 +165,15 @@ export default {
         if (path === "/app/transfer") return await customer.pageTransfer(env, env.DB, user);
         if (path === "/app/verify") return await customer.pageVerify(env, env.DB, user);
 
-        const m = path.match(/^\/app\/account\/(\d+)$/);
-        if (m) return await customer.pageAccount(env, env.DB, user, parseInt(m[1], 10));
+        if (path === "/app/business") return await businessui.pageBusinessList(env, env.DB, user);
+
+        let m;
+        if ((m = path.match(/^\/app\/business\/(\d+)$/)))
+          return await businessui.pageBusiness(env, env.DB, user, parseInt(m[1], 10));
+        if ((m = path.match(/^\/app\/business\/(\d+)\/tier$/)))
+          return await businessui.pageTier(env, env.DB, user, parseInt(m[1], 10));
+        if ((m = path.match(/^\/app\/account\/(\d+)$/)))
+          return await customer.pageAccount(env, env.DB, user, parseInt(m[1], 10));
 
         return html(page("Not found", `<h1>404</h1>`), 404);
       }
@@ -207,6 +229,13 @@ export default {
       if (path === "/status") {
         const user = await auth.getSession(env, env.DB, request).catch(() => null);
         return await statusPage(env, auth.isStaff(user));
+      }
+
+      // Public company profile, Platinum only.
+      const cp = path.match(/^\/company\/(.+)$/);
+      if (cp) {
+        const user = await auth.getSession(env, env.DB, request).catch(() => null);
+        return await businessui.pageCompanyProfile(env, env.DB, user, decodeURIComponent(cp[1]));
       }
 
       if (path === "/health") return json({ ok: true, service: "ze-bank" });

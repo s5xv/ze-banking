@@ -137,6 +137,7 @@ export function layout(title, body, { user = null, active = "" } = {}) {
          <a href="/app/deposit" class="${active === "deposit" ? "on" : ""}">Deposit</a>
          <a href="/app/withdraw" class="${active === "withdraw" ? "on" : ""}">Withdraw</a>
          <a href="/app/transfer" class="${active === "transfer" ? "on" : ""}">Transfer</a>
+         <a href="/app/business" class="${active === "business" ? "on" : ""}">Companies</a>
          ${user.role !== "customer" ? `<a href="/admin" class="${active === "admin" ? "on" : ""}">Admin</a>` : ""}
        </nav>
        <div class="spacer"></div>
