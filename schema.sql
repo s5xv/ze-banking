@@ -65,7 +65,10 @@ CREATE TABLE IF NOT EXISTS accounts (
   -- Permanent per-account code the customer puts in the /pay memo. Reused
   -- forever, so depositing is "pay this code again" rather than "come back to
   -- the site and generate a new one each time".
-  deposit_code   TEXT UNIQUE,
+  -- Uniqueness is an index (idx_accounts_deposit_code) rather than a column
+  -- constraint, so that migrations can ADD COLUMN it — SQLite forbids adding a
+  -- UNIQUE column to an existing table.
+  deposit_code   TEXT,
   -- Only internal bookkeeping accounts (and later, credit) may go negative.
   allow_negative INTEGER NOT NULL DEFAULT 0,
   interest_bps   INTEGER NOT NULL DEFAULT 0,   -- monthly rate, basis points
@@ -300,6 +303,9 @@ INSERT OR IGNORE INTO accounts (id, kind, label, allow_negative) VALUES
   (3, 'internal_suspense', 'In flight / unattributed',    1);
 
 CREATE INDEX IF NOT EXISTS idx_accounts_owner    ON accounts(owner_user_id);
+-- Multiple NULLs are allowed in a SQLite UNIQUE index, so internal accounts
+-- (which have no deposit code) don't collide with each other.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_deposit_code ON accounts(deposit_code);
 CREATE INDEX IF NOT EXISTS idx_postings_account  ON postings(account_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_postings_entry    ON postings(entry_id);
 CREATE INDEX IF NOT EXISTS idx_entries_created   ON entries(created_at DESC);
