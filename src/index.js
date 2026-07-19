@@ -12,6 +12,7 @@ import * as deposits from "./deposits.js";
 import * as withdrawals from "./withdrawals.js";
 import * as auth from "./auth.js";
 import * as customer from "./customer.js";
+import * as admin from "./admin.js";
 import { formatCents } from "./money.js";
 
 const json = (obj, status = 200) =>
@@ -148,6 +149,44 @@ export default {
 
         const m = path.match(/^\/app\/account\/(\d+)$/);
         if (m) return await customer.pageAccount(env, env.DB, user, parseInt(m[1], 10));
+
+        return html(page("Not found", `<h1>404</h1>`), 404);
+      }
+
+      // ----- admin (staff + admin roles) -----
+      if (path === "/admin" || path.startsWith("/admin/")) {
+        const user = await auth.getSession(env, env.DB, request);
+        if (!user) {
+          return Response.redirect(`${url.origin}/auth/login?next=${encodeURIComponent(path)}`, 302);
+        }
+        if (!auth.isStaff(user)) {
+          return html(page("Admin", `<h1>Not authorised</h1>
+            <p class="muted">Your account doesn't have staff access.</p>`), 403);
+        }
+        const db = env.DB;
+
+        if (request.method === "POST") {
+          if (path === "/admin/withdrawals") return await admin.doWithdrawalAction(env, db, user, request);
+          if (path === "/admin/deposits") return await admin.doAssignDeposit(env, db, user, request);
+          if (path === "/admin/adjust") return await admin.doAdjust(env, db, user, request);
+          if (path === "/admin/settings") return await admin.doSettings(env, db, user, request);
+          const cm = path.match(/^\/admin\/customer\/(\d+)$/);
+          if (cm) return await admin.doCustomerAction(env, db, user, parseInt(cm[1], 10), request);
+          return new Response("Method not allowed", { status: 405 });
+        }
+
+        if (path === "/admin") return await admin.pageDashboard(env, db, user);
+        if (path === "/admin/withdrawals") return await admin.pageWithdrawals(env, db, user);
+        if (path === "/admin/deposits") return await admin.pageDeposits(env, db, user);
+        if (path === "/admin/customers")
+          return await admin.pageCustomers(env, db, user, url.searchParams.get("q") || "");
+        if (path === "/admin/adjust") return await admin.pageAdjust(env, db, user);
+        if (path === "/admin/reconciliation") return await admin.pageReconciliation(env, db, user);
+        if (path === "/admin/settings") return await admin.pageSettings(env, db, user);
+        if (path === "/admin/audit") return await admin.pageAudit(env, db, user);
+
+        const cm = path.match(/^\/admin\/customer\/(\d+)$/);
+        if (cm) return await admin.pageCustomer(env, db, user, parseInt(cm[1], 10));
 
         return html(page("Not found", `<h1>404</h1>`), 404);
       }
