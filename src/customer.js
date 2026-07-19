@@ -1,4 +1,4 @@
-// customer.js — the pages a customer actually uses.
+// customer.js - the pages a customer actually uses.
 //   /app              accounts overview
 //   /app/account/:id  statement
 //   /app/deposit      permanent deposit code
@@ -19,7 +19,7 @@ const PAY_TO = (env) => env.BANK_FIRM_NAME || "ZEBank";
 // ---------------------------------------------------------------------------
 export async function pageLanding(env, db, user) {
   // Rates come from settings, so changing them in admin updates the marketing
-  // copy too — no redeploy, and no chance of advertising a rate we don't pay.
+  // copy too - no redeploy, and no chance of advertising a rate we don't pay.
   let savingsPct = "2.00";
   let customers = 0;
   try {
@@ -30,7 +30,7 @@ export async function pageLanding(env, db, user) {
       .first();
     customers = r ? r.n : 0;
   } catch {
-    // Database not migrated yet — the page still renders.
+    // Database not migrated yet - the page still renders.
   }
 
   const cta = user
@@ -81,7 +81,7 @@ export async function pageLanding(env, db, user) {
       <div class="acct-row">
         <div><b>2. Verify your Minecraft account</b>
           <div class="muted small">Send a small payment with a code we give you. It proves
-          the account is yours, and the money is credited to your balance — it isn't a fee.</div></div>
+          the account is yours, and the money is credited to your balance - it isn't a fee.</div></div>
       </div>
       <div class="acct-row">
         <div><b>3. Deposit, spend, save</b>
@@ -97,7 +97,7 @@ export async function pageLanding(env, db, user) {
       <p class="muted small" style="margin-top:0">
         Deposits are held in the bank's Treasury account. Every balance is recorded in a
         double-entry ledger, and the books are automatically checked against the Treasury
-        every hour — if they ever disagree, withdrawals pause until a human has looked at it.
+        every hour - if they ever disagree, withdrawals pause until a human has looked at it.
         We'd rather be briefly unavailable than quietly wrong.
       </p>
     </div>
@@ -191,7 +191,7 @@ export async function pageAccount(env, db, user, accountId) {
     <a class="muted small" href="/app">← Accounts</a>
     <h1 style="margin-top:10px">${esc(account.label || account.kind)}</h1>
     <div class="balance">${money(account.balance_cents)}</div>
-    <p class="muted small">Deposit code <code>${esc(account.deposit_code || "—")}</code></p>
+    <p class="muted small">Deposit code <code>${esc(account.deposit_code || "-")}</code></p>
     <div class="card" style="margin-top:18px">
       <table><thead><tr><th>When</th><th>Detail</th><th style="text-align:right">Amount</th></tr></thead>
       <tbody>${rows}</tbody></table>
@@ -201,7 +201,7 @@ export async function pageAccount(env, db, user, accountId) {
 }
 
 // ---------------------------------------------------------------------------
-// deposit — permanent code, no form needed
+// deposit - permanent code, no form needed
 // ---------------------------------------------------------------------------
 export async function pageDeposit(env, db, user) {
   const accounts = await ledger.listUserAccounts(db, user.id);
@@ -209,7 +209,7 @@ export async function pageDeposit(env, db, user) {
     .map(
       (a) => `<div class="card" style="margin-top:14px">
         <h3>${esc(a.label || a.kind)}</h3>
-        <p class="muted small">Pay this in game. The code is permanent — reuse it every time.</p>
+        <p class="muted small">Pay this in game. The code is permanent - reuse it every time.</p>
         <div class="code">/pay ${esc(PAY_TO(env))} &lt;amount&gt; ${esc(a.deposit_code)}</div>
       </div>`
     )
@@ -220,7 +220,7 @@ export async function pageDeposit(env, db, user) {
     <p class="muted">Money is credited automatically, usually within a minute of paying.</p>
     ${blocks || `<div class="empty">No accounts yet.</div>`}
     ${notice(
-      `Include the code in the memo exactly. If you forget it, the payment still reaches us —
+      `Include the code in the memo exactly. If you forget it, the payment still reaches us -
        it just has to be matched by hand, which is slower.`
     )}
   </section>`;
@@ -248,7 +248,7 @@ export async function pageWithdraw(env, db, user, message = "") {
   const paused = (await ledger.getSetting(db, "withdrawals_paused", "0")) === "1";
 
   const options = accounts
-    .map((a) => `<option value="${a.id}">${esc(a.label || a.kind)} — ${money(a.balance_cents)}</option>`)
+    .map((a) => `<option value="${a.id}">${esc(a.label || a.kind)} - ${money(a.balance_cents)}</option>`)
     .join("");
 
   const recent = accounts.length ? await withdrawals.listForAccount(db, accounts[0].id, 8) : [];
@@ -305,13 +305,13 @@ export async function doWithdraw(env, db, user, request) {
         notice(`<b>Sent.</b> ${money(parsed.cents)} is on its way to ${esc(user.mc_username)}.`, "good")
       );
     }
-    // pending / needs_review — money has left their balance but we can't yet
+    // pending / needs_review - money has left their balance but we can't yet
     // confirm it arrived. Say so plainly rather than implying success.
     return await pageWithdraw(
       env, db, user,
       notice(
         `<b>Processing.</b> We've reserved ${money(parsed.cents)} and are confirming the transfer.
-         If it doesn't arrive shortly it will be returned to your balance automatically —
+         If it doesn't arrive shortly it will be returned to your balance automatically -
          it will not be sent twice.`,
         "warn"
       )
@@ -322,17 +322,17 @@ export async function doWithdraw(env, db, user, request) {
 }
 
 // ---------------------------------------------------------------------------
-// transfer — internal, instant, no Treasury round-trip
+// transfer - internal, instant, no Treasury round-trip
 // ---------------------------------------------------------------------------
 export async function pageTransfer(env, db, user, message = "") {
   const accounts = (await ledger.listUserAccounts(db, user.id)).filter((a) => a.status === "active");
   const options = accounts
-    .map((a) => `<option value="${a.id}">${esc(a.label || a.kind)} — ${money(a.balance_cents)}</option>`)
+    .map((a) => `<option value="${a.id}">${esc(a.label || a.kind)} - ${money(a.balance_cents)}</option>`)
     .join("");
 
   const body = `<section>
     <h1>Transfer</h1>
-    <p class="muted">Instant and free between Z&amp;E Bank customers — the money never leaves the bank.</p>
+    <p class="muted">Instant and free between Z&amp;E Bank customers - the money never leaves the bank.</p>
     ${message}
     <div class="card" style="margin-top:16px">
       <form method="POST" action="/app/transfer">
@@ -410,9 +410,9 @@ export async function pageVerify(env, db, user, message = "") {
         <h3>Waiting for your payment</h3>
         <p class="muted small">Send exactly ${money(pending.amount_cents)} from
         <b>${esc(pending.mc_username)}</b> with this memo. The money is credited to your
-        account — it isn't a fee.</p>
+        account - it isn't a fee.</p>
         <div class="code">/pay ${esc(PAY_TO(env))} ${(pending.amount_cents / 100).toFixed(2)} ${esc(pending.code)}</div>
-        <p class="muted small" style="margin-top:12px">It must come from that account —
+        <p class="muted small" style="margin-top:12px">It must come from that account -
         that's what proves it's yours. Refresh this page once you've paid.</p>
       </div>`
     : "";

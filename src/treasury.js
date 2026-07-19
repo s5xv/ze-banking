@@ -1,4 +1,4 @@
-// treasury.js — client for the DemocracyCraft Treasury REST API.
+// treasury.js - client for the DemocracyCraft Treasury REST API.
 // ===========================================================================
 // Base: https://api.democracycraft.net/economy
 // Auth: BUSINESS-scope JWT issued in-game with `/treasuryapi business issue`.
@@ -71,7 +71,7 @@ async function request(env, path, { method = "GET", body = null, headers = {}, t
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    // 5xx: the server may or may not have applied it — retryable, but only
+    // 5xx: the server may or may not have applied it - retryable, but only
     // with the same Idempotency-Key.
     const retryable = res.status >= 500;
     throw new TreasuryError(
@@ -102,7 +102,7 @@ export async function accountForPlayer(env, { name = null, uuid = null }) {
   }
 }
 
-/** Pool balance in integer cents — the bank's real assets. */
+/** Pool balance in integer cents - the bank's real assets. */
 export async function poolBalanceCents(env) {
   const id = env.POOL_ACCOUNT_ID;
   if (!id) throw new TreasuryError("NO_POOL", "POOL_ACCOUNT_ID is not configured", 0, false);
@@ -113,7 +113,7 @@ export async function poolBalanceCents(env) {
 }
 
 // ---------------------------------------------------------------------------
-// transaction feed — cursor based, so ingestion never has gaps.
+// transaction feed - cursor based, so ingestion never has gaps.
 // ---------------------------------------------------------------------------
 /**
  * Pull postings after `cursor`. Returns { items, nextCursor, hasMore }.
@@ -121,7 +121,7 @@ export async function poolBalanceCents(env) {
  * Each item: { postingId, txnId, amount, memo, message, settledAt,
  *              initiatorUuid, pluginSystem }
  *
- * postingId is per-account and unique — the correct idempotency key. txnId is
+ * postingId is per-account and unique - the correct idempotency key. txnId is
  * shared by both legs of a transfer and would collide.
  *
  * amountCents is signed: positive is money arriving in the pool, negative is
@@ -148,7 +148,7 @@ export async function fetchFeed(env, cursor = 0, limit = 200) {
     pluginSystem: t.pluginSystem || null,
   }));
 
-  // A posting we can't parse must not be silently skipped — that would be
+  // A posting we can't parse must not be silently skipped - that would be
   // real money the books never see.
   const bad = items.filter((t) => t.amountCents === null || !t.postingId);
   if (bad.length) {
@@ -172,7 +172,7 @@ export async function fetchTransactions(env, { page = 1, limit = 50 } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// transfers — money leaving the bank
+// transfers - money leaving the bank
 // ---------------------------------------------------------------------------
 /**
  * Pay a player from the pool.
@@ -214,7 +214,7 @@ export async function payPlayer(env, { toPlayerUuid, toPlayerName, amountCents, 
   };
 }
 
-/** Pay another firm — used later for business payouts. */
+/** Pay another firm - used later for business payouts. */
 export async function payFirm(env, { toFirm, amountCents, memo, idempotencyKey }) {
   if (!idempotencyKey) throw new TreasuryError("NO_IDEMPOTENCY_KEY", "Refusing to transfer without an idempotency key", 0, false);
   const d = await request(env, "/api/v1/transfers/to-firm", {
@@ -231,7 +231,7 @@ export async function payFirm(env, { toFirm, amountCents, memo, idempotencyKey }
 }
 
 // ---------------------------------------------------------------------------
-// webhooks — push notification of deposits, so players don't wait on a poll.
+// webhooks - push notification of deposits, so players don't wait on a poll.
 // The cursor feed still runs as the safety net; both are idempotent on
 // postingId, so a deposit seen twice is credited once.
 // ---------------------------------------------------------------------------

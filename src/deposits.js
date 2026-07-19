@@ -1,8 +1,8 @@
-// deposits.js — real money arriving in the Treasury pool.
+// deposits.js - real money arriving in the Treasury pool.
 // ===========================================================================
 // SIGN CONVENTION (important, and slightly counter-intuitive):
 //
-//   Customer accounts hold POSITIVE balances — "you have 500".
+//   Customer accounts hold POSITIVE balances - "you have 500".
 //   The internal pool account goes NEGATIVE as claims are issued against it.
 //
 //   Deposit  500:  customer +500,  pool -500   (sums to 0)
@@ -30,7 +30,7 @@ const VERIFY_RE = /\bVERIFY-[0-9A-F]{12}\b/i;
 
 /**
  * Work out which account a payment belongs to.
- *   1. A deposit code in the memo — explicit, wins over everything.
+ *   1. A deposit code in the memo - explicit, wins over everything.
  *   2. The paying player's verified Minecraft uuid -> their checking account.
  *   3. Nothing. Money is real but unattributable; it goes to suspense and an
  *      admin resolves it. It is NEVER dropped or auto-assigned.
@@ -58,7 +58,7 @@ async function resolveTarget(db, item) {
 }
 
 /**
- * Credit one Treasury posting. Safe to call repeatedly with the same posting —
+ * Credit one Treasury posting. Safe to call repeatedly with the same posting -
  * the UNIQUE constraint makes the second call a no-op.
  *
  * @returns { credited: boolean, duplicate: boolean, accountId, reason }
@@ -106,7 +106,7 @@ export async function creditPosting(db, item, { source = "feed" } = {}) {
 
   const { account, how } = await resolveTarget(db, item);
 
-  // Frozen accounts don't take deposits either — the money is held in suspense
+  // Frozen accounts don't take deposits either - the money is held in suspense
   // so it isn't stuck inside an account nobody can touch.
   const usable = account && account.status === "active";
   const targetId = usable ? account.id : ledger.SUSPENSE_ACCOUNT_ID;
@@ -125,7 +125,7 @@ export async function creditPosting(db, item, { source = "feed" } = {}) {
     });
     entryId = res.entryId;
   } catch (err) {
-    // Money genuinely arrived, so failing to book it is not acceptable — leave
+    // Money genuinely arrived, so failing to book it is not acceptable - leave
     // a trace for the admin rather than swallowing it.
     await ledger.audit(db, {
       action: "deposit.failed",
@@ -169,7 +169,7 @@ export async function creditPosting(db, item, { source = "feed" } = {}) {
  * Drain the Treasury feed from our stored cursor.
  *
  * The cursor only advances after a page is fully processed, so a crash
- * mid-page re-reads it next run — which is harmless, because every credit is
+ * mid-page re-reads it next run - which is harmless, because every credit is
  * idempotent on postingId. Losing a deposit is unacceptable; re-reading one
  * costs nothing.
  */
@@ -216,7 +216,7 @@ export async function ingestFeed(env, db, { maxPages = 20 } = {}) {
  * Webhook receiver.
  *
  * Deliberately does NOT trust the payload's amounts. A push just means
- * "something happened" — we then pull the authoritative feed. That way there
+ * "something happened" - we then pull the authoritative feed. That way there
  * is exactly one code path that can create money, and forging a webhook body
  * can't credit anyone. The signature check still matters (it stops randoms
  * making us hammer the API), but it isn't load-bearing for correctness.

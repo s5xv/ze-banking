@@ -1,9 +1,9 @@
-// auth.js — Discord login, sessions, and proven Minecraft ownership.
+// auth.js - Discord login, sessions, and proven Minecraft ownership.
 // ===========================================================================
 // Two separate things, deliberately not conflated:
 //
-//   IDENTITY  — who you are on Discord. Gives you a login and an account.
-//   OWNERSHIP — proof you control a Minecraft account. Required before any
+//   IDENTITY  - who you are on Discord. Gives you a login and an account.
+//   OWNERSHIP - proof you control a Minecraft account. Required before any
 //               money can leave the bank in your name.
 //
 // A user can hold a balance with identity alone. Withdrawing needs ownership,
@@ -16,7 +16,7 @@ import * as treasury from "./treasury.js";
 
 const SESSION_COOKIE = "ze_session";
 const OAUTH_COOKIE = "ze_oauth";
-const SESSION_SECONDS = 60 * 60 * 24 * 14; // 14 days — shorter than GFC; it's a bank
+const SESSION_SECONDS = 60 * 60 * 24 * 14; // 14 days - shorter than GFC; it's a bank
 const enc = new TextEncoder();
 
 // ----- base64url ------------------------------------------------------------
@@ -232,7 +232,7 @@ export const isVerified = (u) => !!u && !!u.mc_verified_at && !!u.mc_uuid;
 // ===========================================================================
 // Minecraft ownership
 // ===========================================================================
-const VERIFY_AMOUNT_CENTS = 100; // 1.00 — small enough to be painless
+const VERIFY_AMOUNT_CENTS = 100; // 1.00 - small enough to be painless
 const VERIFY_TTL_MINUTES = 60;
 
 function verifyCode() {
@@ -256,7 +256,7 @@ export async function startVerification(env, db, user, claimedName) {
     throw new Error("No Treasury account found for that username. Have you played on the server?");
   }
 
-  // One verified owner per Minecraft account — otherwise two site users could
+  // One verified owner per Minecraft account - otherwise two site users could
   // both withdraw "to" the same player.
   const taken = await db
     .prepare(`SELECT id FROM users WHERE mc_uuid = ? AND id <> ? AND mc_verified_at IS NOT NULL`)
@@ -285,11 +285,11 @@ export async function startVerification(env, db, user, claimedName) {
  * Called by deposit ingestion when a payment memo carries a verification code.
  *
  * THE ACTUAL PROOF: `payerUuid` (the Treasury's initiatorUuid) must equal the
- * uuid recorded when verification started. The code alone proves nothing —
+ * uuid recorded when verification started. The code alone proves nothing -
  * it's visible to anyone the user shows their screen to. Only the server can
  * say who really sent the money.
  *
- * @returns { verified, userId } — verified=false means the code was real but
+ * @returns { verified, userId } - verified=false means the code was real but
  *          the payment came from the wrong account; the caller still credits
  *          the money, it just doesn't confer ownership.
  */

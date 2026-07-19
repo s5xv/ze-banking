@@ -1,4 +1,4 @@
-// views.js — shared rendering for Z&E Bank.
+// views.js - shared rendering for Z&E Bank.
 // Light/dark follows the OS by default and can be overridden with a toggle
 // that persists in localStorage.
 

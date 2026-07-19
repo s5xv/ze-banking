@@ -1,9 +1,9 @@
--- Z&E Bank — ledger schema
+-- Z&E Bank - ledger schema
 -- ===========================================================================
 -- Run once:
 --   npx wrangler d1 execute ze-bank --remote --file=schema.sql
 --
--- DESIGN NOTE — why so many CHECK constraints:
+-- DESIGN NOTE - why so many CHECK constraints:
 -- Money rules enforced in application code are only as durable as the next
 -- person to edit that code. Rules enforced by the database hold even when the
 -- application is wrong. Everything that would let money be invented, lost, or
@@ -16,7 +16,7 @@
 PRAGMA foreign_keys = ON;
 
 -- ---------------------------------------------------------------------------
--- USERS — Discord identity, with a *proven* Minecraft link.
+-- USERS - Discord identity, with a *proven* Minecraft link.
 -- mc_verified_at is only set after the player sends a verification payment
 -- carrying a one-time code. A self-typed username is never trusted, because it
 -- decides where withdrawals go.
@@ -41,10 +41,10 @@ CREATE TABLE IF NOT EXISTS users (
 -- ACCOUNTS
 --
 -- kind:
---   checking / savings   — customer money (a LIABILITY of the bank)
---   internal_pool        — mirrors the real Treasury firm account (ASSET)
---   internal_equity      — the bank's own capital; absorbs interest cost
---   internal_suspense    — money in flight (a withdrawal sent but unconfirmed)
+--   checking / savings   - customer money (a LIABILITY of the bank)
+--   internal_pool        - mirrors the real Treasury firm account (ASSET)
+--   internal_equity      - the bank's own capital; absorbs interest cost
+--   internal_suspense    - money in flight (a withdrawal sent but unconfirmed)
 --
 -- balance_cents is a cached aggregate. Postings are the source of truth; this
 -- column exists so reads don't sum the whole postings table, and it is ALWAYS
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- it and shouts if they disagree.
 --
 -- The overdraft CHECK is the real protection against spending money that isn't
--- there — it fails the whole batch at the database level, whatever the
+-- there - it fails the whole batch at the database level, whatever the
 -- application believed the balance was a moment earlier.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS accounts (
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   -- forever, so depositing is "pay this code again" rather than "come back to
   -- the site and generate a new one each time".
   -- Uniqueness is an index (idx_accounts_deposit_code) rather than a column
-  -- constraint, so that migrations can ADD COLUMN it — SQLite forbids adding a
+  -- constraint, so that migrations can ADD COLUMN it - SQLite forbids adding a
   -- UNIQUE column to an existing table.
   deposit_code   TEXT,
   -- Only internal bookkeeping accounts (and later, credit) may go negative.
@@ -87,12 +87,12 @@ CREATE TABLE IF NOT EXISTS accounts (
 );
 
 -- ---------------------------------------------------------------------------
--- ENTRIES — one journal header per money movement.
+-- ENTRIES - one journal header per money movement.
 --
 -- idempotency_key is UNIQUE and REQUIRED. This single constraint is what makes
 -- every operation in the system safe to retry: a duplicated request fails at
 -- the database instead of moving money a second time. Never generate it
--- randomly at the point of insert — derive it from the thing being recorded
+-- randomly at the point of insert - derive it from the thing being recorded
 -- (treasury posting id, withdrawal id, account+period, ...).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS entries (
@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS entries (
 );
 
 -- ---------------------------------------------------------------------------
--- POSTINGS — the double-entry legs.
+-- POSTINGS - the double-entry legs.
 --
 -- INVARIANT: for any entry_id, SUM(amount_cents) = 0.
 -- SQLite can't express a cross-row constraint, so it's asserted in ledger.js
@@ -124,13 +124,13 @@ CREATE TABLE IF NOT EXISTS postings (
 );
 
 -- ---------------------------------------------------------------------------
--- DEPOSITS — real money arriving in the Treasury pool.
+-- DEPOSITS - real money arriving in the Treasury pool.
 --
 -- treasury_posting_id is the Treasury's per-account `postingId`, and it is
 -- UNIQUE. That is what lets the webhook and the cursor-feed poller both run
 -- without ever crediting the same deposit twice.
 --
--- NOT `txnId` — that is shared by both sides of a transfer and would collide.
+-- NOT `txnId` - that is shared by both sides of a transfer and would collide.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS deposits (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS deposits (
 );
 
 -- ---------------------------------------------------------------------------
--- WITHDRAWALS — real money leaving. The most dangerous path in the system.
+-- WITHDRAWALS - real money leaving. The most dangerous path in the system.
 --
 -- The ledger is debited BEFORE the Treasury call. That deliberately chooses
 -- "stuck pending" (recoverable) over "paid twice" (money gone).
@@ -165,7 +165,7 @@ CREATE TABLE IF NOT EXISTS deposits (
 --   pending       ledger debited, Treasury call not yet confirmed
 --   sent          Treasury confirmed
 --   failed        Treasury rejected; ledger entry reversed
---   needs_review  unknown outcome (timeout/5xx). NEVER retry blindly —
+--   needs_review  unknown outcome (timeout/5xx). NEVER retry blindly -
 --                 re-send the SAME idempotency_key, or confirm via the feed.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS withdrawals (
@@ -189,11 +189,11 @@ CREATE TABLE IF NOT EXISTS withdrawals (
 );
 
 -- ---------------------------------------------------------------------------
--- INTEREST RUNS — one row per account per period, enforced by UNIQUE.
+-- INTEREST RUNS - one row per account per period, enforced by UNIQUE.
 --
 -- This constraint IS the double-credit protection. The insert is attempted
 -- first; if it is rejected, that month is already paid and the run skips.
--- Deliberately not "check then write" — that races.
+-- Deliberately not "check then write" - that races.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS interest_runs (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -208,10 +208,10 @@ CREATE TABLE IF NOT EXISTS interest_runs (
 );
 
 -- ---------------------------------------------------------------------------
--- MC VERIFICATIONS — proving a user controls the Minecraft account they claim.
+-- MC VERIFICATIONS - proving a user controls the Minecraft account they claim.
 --
 -- The user names an account, we generate a code, they send a small payment
--- carrying that code. The proof is NOT the code (anyone could type it) — it is
+-- carrying that code. The proof is NOT the code (anyone could type it) - it is
 -- that the payment ARRIVED FROM the claimed uuid. `initiatorUuid` on the
 -- Treasury posting must match `mc_uuid` here, or the attempt is rejected.
 --
@@ -233,7 +233,7 @@ CREATE TABLE IF NOT EXISTS mc_verifications (
 CREATE INDEX IF NOT EXISTS idx_mcver_user ON mc_verifications(user_id, status);
 
 -- ---------------------------------------------------------------------------
--- LEDGER CURSOR — position in the Treasury transaction feed.
+-- LEDGER CURSOR - position in the Treasury transaction feed.
 -- Single row (id = 1). Lets ingestion resume exactly where it stopped instead
 -- of re-scanning a fixed window and eventually missing transactions.
 -- ---------------------------------------------------------------------------
@@ -245,7 +245,7 @@ CREATE TABLE IF NOT EXISTS ledger_cursor (
 INSERT OR IGNORE INTO ledger_cursor (id, cursor) VALUES (1, 0);
 
 -- ---------------------------------------------------------------------------
--- RECONCILIATION — the record of whether the books balance.
+-- RECONCILIATION - the record of whether the books balance.
 -- drift_cents <> 0 means money is missing or invented. Auto-processing of
 -- withdrawals halts until an admin acknowledges.
 -- ---------------------------------------------------------------------------
@@ -263,7 +263,7 @@ CREATE TABLE IF NOT EXISTS reconciliations (
 );
 
 -- ---------------------------------------------------------------------------
--- AUDIT LOG — every privileged action. Append-only by convention.
+-- AUDIT LOG - every privileged action. Append-only by convention.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS audit_log (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -277,7 +277,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 -- ---------------------------------------------------------------------------
--- SETTINGS — runtime config that must change without a redeploy.
+-- SETTINGS - runtime config that must change without a redeploy.
 -- reserve_ratio_bps default 10000 = 100% = fully reserved. The bank cannot
 -- lend customer deposits until V1 explicitly lowers this, and lowering it is
 -- an audited action.

@@ -1,4 +1,4 @@
-# Z&E Bank — build plan
+# Z&E Bank - build plan
 
 Client: V1 [2077] · Budget: 35k · Stack: Cloudflare Workers + D1
 Treasury API: `https://api.democracycraft.net/economy` (OpenAPI v1)
@@ -8,7 +8,7 @@ Treasury API: `https://api.democracycraft.net/economy` (OpenAPI v1)
 ## 0. The one idea everything else follows from
 
 The bank holds **one pooled firm account** at the Treasury. Player balances are
-not real Treasury accounts — they're rows in our own **double-entry ledger**.
+not real Treasury accounts - they're rows in our own **double-entry ledger**.
 Deposits move real money into the pool and credit an internal account;
 withdrawals debit the internal account and push real money back out.
 
@@ -47,7 +47,7 @@ users              discord identity + verified minecraft link
 accounts           id, owner_user_id, kind, status, balance_cents, created_at
                    kind:   checking | savings | internal_equity | internal_pool
                    status: active | frozen | closed
-entries            journal header — one per money movement
+entries            journal header - one per money movement
                    id, kind, memo, idempotency_key UNIQUE, created_by, created_at
 postings           id, entry_id, account_id, amount_cents (signed)
                    INVARIANT: sum(amount_cents) per entry_id = 0
@@ -72,15 +72,15 @@ so balance reads don't aggregate the whole table. Reconciliation re-derives it.
 1. Player is shown a payment command with a unique memo.
 2. Money lands in the pooled firm account.
 3. We learn about it two ways, and both are safe to run at once:
-   - **Webhook** — `POST /api/v1/webhooks` registers a URL and returns a
+   - **Webhook** - `POST /api/v1/webhooks` registers a URL and returns a
      `secret`; deposits arrive pushed, near-instant.
-   - **Cursor feed** — `/accounts/{id}/transactions/feed?since=<cursor>` with
+   - **Cursor feed** - `/accounts/{id}/transactions/feed?since=<cursor>` with
      `nextCursor`/`hasMore`. Runs on a cron as the safety net for anything the
      webhook missed.
 4. `deposits.treasury_posting_id` is `UNIQUE`. Whichever path sees it first
    creates the entry; the second is a no-op.
 
-`postingId` — not `txnId` — is the idempotency key. `txnId` is shared by both
+`postingId` - not `txnId` - is the idempotency key. `txnId` is shared by both
 sides of a transfer and would collide.
 
 Only **positive** postings count. Postings are double-entry at the Treasury
@@ -88,7 +88,7 @@ level too, so a negative amount is money *leaving* the pool.
 
 ---
 
-## 4. Withdrawals (money out) — the dangerous path
+## 4. Withdrawals (money out) - the dangerous path
 
 Order matters. Debit internally **first**, then pay out.
 
@@ -112,8 +112,8 @@ The failure mode this ordering chooses is deliberate: a stuck pending
 withdrawal is annoying and fully recoverable. A double payout is money gone.
 
 `needs_review` is resolved by the reconciler, which re-sends the *same*
-`Idempotency-Key` — the Treasury will return the original result rather than
-paying twice — or confirms via the feed whether it settled.
+`Idempotency-Key` - the Treasury will return the original result rather than
+paying twice - or confirms via the feed whether it settled.
 
 ---
 
@@ -121,7 +121,7 @@ paying twice — or confirms via the feed whether it settled.
 
 - Cron on the 1st of each month.
 - For each eligible account: `INSERT INTO interest_runs (account_id, period)`.
-  If the unique constraint rejects it, that period is already paid — skip.
+  If the unique constraint rejects it, that period is already paid - skip.
 - Only after that insert succeeds does the interest entry get written.
 
 Interest is created by the bank, so it is **new liability against unchanged
@@ -143,7 +143,7 @@ Reserve floor = Liabilities x RESERVE_RATIO   (configurable, default 100%)
 Safe to withdraw = max(0, Assets - Reserve floor)
 ```
 
-"Safe to withdraw" is **read-only** — it reports a number, it does not move
+"Safe to withdraw" is **read-only** - it reports a number, it does not move
 money. Admin withdrawals go through the normal withdrawal path and are hard-
 blocked below the reserve floor. At the default 100% ratio the bank is fully
 reserved and cannot lend depositors' money; lowering it is an explicit,
@@ -172,7 +172,7 @@ A bank that can't prove its own books is worse than one that's briefly down.
 
 ## 8. Auth & identity
 
-- Discord OAuth for login (same pattern as GFC — HMAC-signed session cookie,
+- Discord OAuth for login (same pattern as GFC - HMAC-signed session cookie,
   role read fresh from the DB each request).
 - Minecraft account link **proven**, not typed: resolve via
   `/api/v1/accounts/by-player?name=`, then require a small verification payment
@@ -195,14 +195,14 @@ A bank that can't prove its own books is worse than one that's briefly down.
 
 ## 10. Phase 1 deliverables (this contract)
 
-1. Ledger core — schema, double-entry engine, cents math, invariant tests
-2. Deposits — webhook + cursor feed, idempotent
-3. Withdrawals — full state machine incl. `needs_review` recovery
+1. Ledger core - schema, double-entry engine, cents math, invariant tests
+2. Deposits - webhook + cursor feed, idempotent
+3. Withdrawals - full state machine incl. `needs_review` recovery
 4. Transfers between players (internal, instant, no Treasury round-trip)
 5. Savings accounts + monthly interest with double-credit protection
 6. Account freezing
 7. Transaction history + statements
-8. Admin dashboard — solvency, manual entries, queues, drift alerts
+8. Admin dashboard - solvency, manual entries, queues, drift alerts
 9. Reconciliation job
 10. Discord auth + verified Minecraft linking
 11. Light/dark UI in the zenet.redmont.app idiom
@@ -229,7 +229,7 @@ goals · public company profiles · per-business webhooks · admin Discord bot
 4. **Who holds admin?** Admin can move real money. Named people only.
 5. **Charter.** Does DC's government regulate banks? Worth checking before
    launch, not after.
-6. **Firm account** — confirm the pooled account id and that a BUSINESS key is
+6. **Firm account** - confirm the pooled account id and that a BUSINESS key is
    issued via `/treasuryapi business issue`.
 
 ---

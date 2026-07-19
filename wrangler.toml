@@ -12,7 +12,7 @@ account_id = "44e5e10adf532b039a51d6f05472aa58"
 binding = "DB"
 database_name = "ze-bank"
 # Fill from `npx wrangler d1 create ze-bank`. Must be a database on the account
-# above — an id from another account fails with "could not be found [7404]".
+# above - an id from another account fails with "could not be found [7404]".
 database_id = "9af86057-3531-4305-beee-7ceae2fef003"
 
 # Deposit ingestion + reconciliation every 5 minutes; interest is checked
@@ -25,7 +25,7 @@ crons = ["*/5 * * * *", "0 * * * *"]
 BANK_NAME = "Z&E Bank"
 ADMIN_DISCORD_IDS = "1502172252811034735"
 # ---------------------------------------------------------------------------
-# SECRETS — never in this file.
+# SECRETS - never in this file.
 #
 #   npx wrangler secret put DC_API_TOKEN        # BUSINESS JWT, /treasuryapi business issue
 #   npx wrangler secret put POOL_ACCOUNT_ID     # firm account holding customer funds

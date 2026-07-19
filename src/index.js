@@ -1,4 +1,4 @@
-// index.js — Z&E Bank worker entry point.
+// index.js - Z&E Bank worker entry point.
 // ===========================================================================
 // STATUS: ledger core, deposit ingestion and withdrawals are built. The
 // customer-facing UI and Discord auth are next, so most routes below are
@@ -55,7 +55,7 @@ function page(title, body) {
 }
 
 // ---------------------------------------------------------------------------
-// Health / status — proves config is right before any money is at risk.
+// Health / status - proves config is right before any money is at risk.
 // ---------------------------------------------------------------------------
 async function statusPage(env, showSolvency = false) {
   const checks = [];
@@ -73,7 +73,7 @@ async function statusPage(env, showSolvency = false) {
        ('users','accounts','entries','postings','deposits','withdrawals','interest_runs')`
     ).first();
     schemaOk = r && r.n === 7;
-    add("Schema", schemaOk, schemaOk ? "all core tables present" : `${r ? r.n : 0}/7 tables — run schema.sql`);
+    add("Schema", schemaOk, schemaOk ? "all core tables present" : `${r ? r.n : 0}/7 tables - run schema.sql`);
   } catch (e) {
     add("Schema", false, e.message);
   }
@@ -89,7 +89,7 @@ async function statusPage(env, showSolvency = false) {
         <div class="row"><span>Bank equity</span><b class="${s.equity < 0 ? "bad" : "ok"}">${formatCents(s.equity)}</b></div>
         <div class="row"><span>Reserve floor (${(s.reserveRatioBps / 100).toFixed(0)}%)</span><b>${formatCents(s.reserveFloor)}</b></div>
         <div class="row"><span>Safe to withdraw</span><b>${formatCents(s.safeToWithdraw)}</b></div>
-        ${s.underReserved ? `<p class="bad"><b>UNDER-RESERVED</b> — the bank cannot currently cover all deposits.</p>` : ""}`;
+        ${s.underReserved ? `<p class="bad"><b>UNDER-RESERVED</b> - the bank cannot currently cover all deposits.</p>` : ""}`;
     } catch (e) {
       solvencyBlock = `<p class="bad">Treasury error: ${esc(e.message)}</p>`;
     }
@@ -103,7 +103,7 @@ async function statusPage(env, showSolvency = false) {
     page(
       "Status",
       `<h1>Z&amp;E Bank</h1>
-       <p class="muted">Build in progress — ledger core, deposits and withdrawals are live.
+       <p class="muted">Build in progress - ledger core, deposits and withdrawals are live.
        Customer UI and Discord login are next.</p>
        <div class="card"><h3 style="margin-top:0">Configuration</h3>${rows}</div>
        <div class="card"><h3 style="margin-top:0">Solvency</h3>${solvencyBlock}</div>
@@ -191,7 +191,7 @@ export default {
         return html(page("Not found", `<h1>404</h1>`), 404);
       }
 
-      // Public homepage. Session is optional — it only changes the call to action.
+      // Public homepage. Session is optional - it only changes the call to action.
       if (path === "/") {
         const user = await auth.getSession(env, env.DB, request).catch(() => null);
         return await customer.pageLanding(env, env.DB, user);
@@ -234,7 +234,7 @@ export default {
       }
 
       // Treasury deposit webhook. Verifies a signature, then pulls the
-      // authoritative feed — the payload itself is never trusted to create
+      // authoritative feed - the payload itself is never trusted to create
       // money. See deposits.js.
       if (path === "/webhooks/treasury" && request.method === "POST") {
         const r = await deposits.handleWebhook(env, env.DB, request);
@@ -249,8 +249,8 @@ export default {
 
   // -------------------------------------------------------------------------
   // Scheduled work.
-  //   */5 * * * *  — ingest deposits, retry stuck withdrawals
-  //   0   * * * *  — reconcile the books
+  //   */5 * * * *  - ingest deposits, retry stuck withdrawals
+  //   0   * * * *  - reconcile the books
   // Both are idempotent, so overlapping or repeated runs are harmless.
   // -------------------------------------------------------------------------
   async scheduled(event, env, ctx) {
@@ -337,7 +337,7 @@ async function reconcile(env, db) {
     await ledger.setSetting(db, "withdrawals_paused", "1");
     await ledger.audit(db, {
       action: "reconcile.drift",
-      detail: `drift=${drift} unbalanced=${unbalanced.length} mismatches=${mismatches.length} — withdrawals paused`,
+      detail: `drift=${drift} unbalanced=${unbalanced.length} mismatches=${mismatches.length} - withdrawals paused`,
     });
     console.error("RECONCILE DRIFT", { drift, unbalanced: unbalanced.length, mismatches: mismatches.length });
   }

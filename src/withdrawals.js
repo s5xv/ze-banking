@@ -1,8 +1,8 @@
-// withdrawals.js — real money leaving the bank.
+// withdrawals.js - real money leaving the bank.
 // ===========================================================================
 // The most dangerous code in the system. Read this before changing anything.
 //
-// ORDER OF OPERATIONS — deliberate, not accidental:
+// ORDER OF OPERATIONS - deliberate, not accidental:
 //
 //   1. Insert the withdrawal row (no money has moved yet)
 //   2. Debit the ledger        <- money is now reserved
@@ -10,7 +10,7 @@
 //
 // Debiting BEFORE paying means a customer can never spend the same balance
 // twice while a payout is in flight. The cost is that a crash between 2 and 3
-// leaves money reserved but unpaid — visible, recoverable, and fixable by the
+// leaves money reserved but unpaid - visible, recoverable, and fixable by the
 // reconciler. The opposite ordering risks paying twice, which is money gone
 // with no way to get it back.
 //
@@ -22,7 +22,7 @@
 //   UNKNOWN (timeout/5xx)-> it may or may not have gone through.
 //                           status='needs_review'. DO NOT REVERSE, DO NOT
 //                           RETRY WITH A NEW KEY. Reversing here would refund
-//                           a payment that actually succeeded — paying twice
+//                           a payment that actually succeeded - paying twice
 //                           by a slower route.
 //
 // Recovery for UNKNOWN re-sends the SAME Idempotency-Key. The Treasury returns
@@ -73,7 +73,7 @@ export async function requestWithdrawal(env, db, { accountId, userId, amountCent
   }
 
   // Never pay out more than the pool actually holds. If our books and the
-  // Treasury disagree, stop — do not find out mid-transfer.
+  // Treasury disagree, stop - do not find out mid-transfer.
   let poolCents;
   try {
     poolCents = await treasury.poolBalanceCents(env);
@@ -209,7 +209,7 @@ async function reverse(db, w, reason) {
  * Resolve stuck withdrawals. Run on a cron and available to admins.
  *
  * Re-sends the original Idempotency-Key. If the first attempt succeeded, the
- * Treasury replies with that same transfer and we mark it sent — the customer
+ * Treasury replies with that same transfer and we mark it sent - the customer
  * was paid once. If it definitively failed, we reverse. If still unknown, we
  * leave it alone rather than guess.
  */

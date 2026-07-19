@@ -1,9 +1,9 @@
-// money.js — all monetary arithmetic for Z&E Bank.
+// money.js - all monetary arithmetic for Z&E Bank.
 // ===========================================================================
 // ONE RULE: money is an integer number of cents, and it never becomes a float.
 //
 // The Treasury API returns amounts as decimal STRINGS and its own docs say
-// why: "Never JSON number — IEEE 754 rounding will silently corrupt amounts at
+// why: "Never JSON number - IEEE 754 rounding will silently corrupt amounts at
 // scale." A bank paying 2-5% monthly compound interest across thousands of
 // accounts is exactly that scale. 0.1 + 0.2 !== 0.3, and at a bank that
 // difference is somebody's money.
@@ -14,7 +14,7 @@
 // ===========================================================================
 
 // JavaScript integers are exact to 2^53. In cents that is ~90 trillion in
-// currency — far beyond any DemocracyCraft balance — but we assert rather than
+// currency - far beyond any DemocracyCraft balance - but we assert rather than
 // assume, because silently losing precision is the whole failure mode we're
 // avoiding.
 export const MAX_SAFE_CENTS = Number.MAX_SAFE_INTEGER;
@@ -23,7 +23,7 @@ const DECIMAL_RE = /^-?\d{1,15}(\.\d{1,2})?$/;
 
 /**
  * Parse a decimal money string into integer cents.
- * Accepts "1234", "1234.5", "1234.56", "-12.34". Rejects anything else —
+ * Accepts "1234", "1234.5", "1234.56", "-12.34". Rejects anything else -
  * including scientific notation, more than 2 decimal places, empty strings,
  * NaN, Infinity, and JS numbers that aren't integers.
  *
@@ -104,7 +104,7 @@ export function sumCents(list) {
  *
  * Rounding is HALF-UP on the absolute value, so the fraction of a cent goes to
  * the customer rather than being truncated away. That choice is deliberate and
- * consistent — an inconsistent rounding rule is how a ledger slowly drifts.
+ * consistent - an inconsistent rounding rule is how a ledger slowly drifts.
  *
  * Uses Math.round on an integer-scaled product; the intermediate is exact for
  * any realistic balance (balance_cents * 10000 stays well inside 2^53).
@@ -142,7 +142,7 @@ export function splitCents(totalCents, parts) {
 }
 
 /**
- * Parse user form input, which is messier than API input — people type
+ * Parse user form input, which is messier than API input - people type
  * "1,234.5", " 20 ", or "$50". Still refuses anything ambiguous.
  * Returns { cents } or { error }.
  */

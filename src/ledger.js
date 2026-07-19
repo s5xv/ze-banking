@@ -1,9 +1,9 @@
-// ledger.js — double-entry engine for Z&E Bank.
+// ledger.js - double-entry engine for Z&E Bank.
 // ===========================================================================
 // Every movement of money is an ENTRY containing two or more POSTINGS whose
 // amounts sum to exactly zero. Money is never created or destroyed by a
 // posting; it only moves between accounts. If you want money to enter the
-// system, it comes from an internal account, and that account goes negative —
+// system, it comes from an internal account, and that account goes negative -
 // visibly, on the books.
 //
 // Three rules, enforced rather than documented:
@@ -25,7 +25,7 @@ export const EQUITY_ACCOUNT_ID = 2;    // bank's own capital
 export const SUSPENSE_ACCOUNT_ID = 3;  // in flight / unattributed
 
 // ---------------------------------------------------------------------------
-// postEntry — the ONLY way money moves. Nothing else writes to postings or
+// postEntry - the ONLY way money moves. Nothing else writes to postings or
 // touches accounts.balance_cents.
 // ---------------------------------------------------------------------------
 /**
@@ -34,7 +34,7 @@ export const SUSPENSE_ACCOUNT_ID = 3;  // in flight / unattributed
  * @param idempotencyKey  MUST be derived from the thing being recorded
  *        (treasury posting id, withdrawal id, account+period), never random.
  *        Reusing a key is how a retry stays safe.
- * @param postings [{ accountId, amountCents }] — must sum to 0
+ * @param postings [{ accountId, amountCents }] - must sum to 0
  *
  * @returns { entryId, duplicate }  duplicate=true means this exact operation
  *          was already applied and nothing changed. Callers should treat that
@@ -66,8 +66,8 @@ export async function postEntry(db, { kind, memo = null, idempotencyKey, created
   if (existing) return { entryId: existing.id, duplicate: true };
 
   // Insert header, postings, and balance updates as ONE atomic batch. D1 runs
-  // a batch in an implicit transaction: if any statement fails — including the
-  // overdraft CHECK or the UNIQUE key — none of it is applied.
+  // a batch in an implicit transaction: if any statement fails - including the
+  // overdraft CHECK or the UNIQUE key - none of it is applied.
   const statements = [
     db.prepare(
       `INSERT INTO entries (kind, memo, idempotency_key, created_by) VALUES (?, ?, ?, ?)`
@@ -93,7 +93,7 @@ export async function postEntry(db, { kind, memo = null, idempotencyKey, created
   } catch (err) {
     const msg = String(err && err.message);
 
-    // Lost a race with an identical request — the other one won, which is
+    // Lost a race with an identical request - the other one won, which is
     // exactly what idempotency is for.
     if (/UNIQUE/i.test(msg) && /idempotency_key/i.test(msg)) {
       const now = await getEntryByKey(db, idempotencyKey);
@@ -137,7 +137,7 @@ export async function listUserAccounts(db, userId) {
   return results;
 }
 
-/** Balance recomputed from postings — the authoritative number. */
+/** Balance recomputed from postings - the authoritative number. */
 export async function derivedBalance(db, accountId) {
   const r = await db
     .prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total FROM postings WHERE account_id = ?`)
@@ -164,7 +164,7 @@ export async function accountStatement(db, accountId, { limit = 50, before = nul
 // ---------------------------------------------------------------------------
 // accounts
 // ---------------------------------------------------------------------------
-/** 16 hex chars — long enough that codes can't be guessed or mistyped into
+/** 16 hex chars - long enough that codes can't be guessed or mistyped into
  *  someone else's account, short enough to retype in a Minecraft chat box. */
 export function generateDepositCode() {
   const b = new Uint8Array(8);
@@ -222,7 +222,7 @@ export async function setAccountStatus(db, accountId, status) {
 }
 
 // ---------------------------------------------------------------------------
-// internal transfer — player to player, no Treasury round-trip.
+// internal transfer - player to player, no Treasury round-trip.
 // Both sides are our own liability accounts, so the pool never moves and this
 // is instant and free.
 // ---------------------------------------------------------------------------
@@ -235,7 +235,7 @@ export async function transferInternal(db, { fromAccountId, toAccountId, amountC
   assertUsable(from);
   assertUsable(to);
 
-  // Advisory pre-check for a friendly error. The DB CHECK is the real guard —
+  // Advisory pre-check for a friendly error. The DB CHECK is the real guard -
   // this balance could be stale by the time the batch runs, and that's fine.
   if (!from.allow_negative && from.balance_cents < amountCents) {
     throw new LedgerError("INSUFFICIENT_FUNDS", "Not enough money in that account.");
@@ -260,7 +260,7 @@ export async function transferInternal(db, { fromAccountId, toAccountId, amountC
  * What the bank owes customers, what it actually holds, and what an admin may
  * safely take out.
  *
- * `treasuryCents` is the REAL pool balance read from the Treasury API — not
+ * `treasuryCents` is the REAL pool balance read from the Treasury API - not
  * our own book value. Comparing the two is the whole point: if our books say
  * one thing and the Treasury says another, we want to know immediately.
  */
@@ -291,7 +291,7 @@ export async function solvency(db, treasuryCents) {
 }
 
 // ---------------------------------------------------------------------------
-// integrity — used by the reconciliation job and callable from admin.
+// integrity - used by the reconciliation job and callable from admin.
 // ---------------------------------------------------------------------------
 export async function findUnbalancedEntries(db) {
   const { results } = await db
@@ -318,7 +318,7 @@ export async function findBalanceMismatches(db) {
 }
 
 /**
- * Repair a cached balance from its postings. Deliberately NOT automatic — a
+ * Repair a cached balance from its postings. Deliberately NOT automatic - a
  * mismatch means something upstream is wrong, and silently papering over it
  * destroys the evidence. An admin runs this after the cause is understood.
  */

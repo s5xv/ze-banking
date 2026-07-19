@@ -1,8 +1,8 @@
-// admin.js — staff dashboard.
+// admin.js - staff dashboard.
 // ===========================================================================
 // Every action here can move real money, so all of them are POSTs, all of them
 // are audit-logged with the actor, and none of them are one-click. Manual
-// adjustments require a written reason — an unexplained balance change in a
+// adjustments require a written reason - an unexplained balance change in a
 // bank is indistinguishable from theft after the fact.
 //
 // The solvency panel is READ-ONLY. It reports what could safely be withdrawn;
@@ -75,7 +75,7 @@ export async function pageDashboard(env, db, user, message = "") {
       ${
         s.equity < 0
           ? notice(
-              `<b>Negative equity.</b> The bank owes customers more than it holds — usually
+              `<b>Negative equity.</b> The bank owes customers more than it holds - usually
                interest paid out without matching income. This does not fix itself.`,
               "warn"
             )
@@ -114,6 +114,45 @@ export async function pageDashboard(env, db, user, message = "") {
         </div>`
       : "";
 
+  // Bank funding. The owner covers the interest shortfall, so both numbers
+  // need to be visible: how much has been put in, and how much has been paid
+  // out as interest. If the second is outrunning the first, the bank is
+  // running on a promise rather than on capital.
+  const equity = await ledger.getAccount(db, ledger.EQUITY_ACCOUNT_ID);
+  const injected = await db
+    .prepare(
+      `SELECT COALESCE(SUM(amount_cents), 0) AS total FROM deposits
+       WHERE account_id = ? AND status = 'credited'`
+    )
+    .bind(ledger.EQUITY_ACCOUNT_ID)
+    .first();
+  const interestPaid = await db
+    .prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total FROM interest_runs`)
+    .first();
+
+  const fundingBlock = `
+    <div class="card" style="margin-top:16px">
+      <h3>Bank funding</h3>
+      <div class="acct-row">
+        <div><b>Capital put in</b>
+          <div class="muted small">real money paid into the bank by the owner</div></div>
+        <div style="text-align:right;font-weight:700">${money0(injected ? injected.total : 0)}</div>
+      </div>
+      <div class="acct-row">
+        <div><b>Interest paid out</b>
+          <div class="muted small">total ever credited to savings accounts</div></div>
+        <div style="text-align:right;font-weight:700">${money0(interestPaid ? interestPaid.total : 0)}</div>
+      </div>
+      ${
+        equity && equity.deposit_code
+          ? `<p class="muted small" style="margin-top:14px;margin-bottom:6px">
+               To put money into the bank, pay this code in game. It credits bank
+               capital, not a customer account.</p>
+             <div class="code">/pay ${esc(env.BANK_FIRM_NAME || "ZEBank")} &lt;amount&gt; ${esc(equity.deposit_code)}</div>`
+          : `<p class="muted small">Run migration 002 to generate the funding code.</p>`
+      }
+    </div>`;
+
   const queues = `
     <div class="cards c2" style="margin-top:16px">
       <div class="card">
@@ -133,6 +172,7 @@ export async function pageDashboard(env, db, user, message = "") {
     <p class="muted">Signed in as ${esc(user.discord_username)} · ${esc(user.role)}</p>
     ${message}${pausedBlock}${driftBlock}
     ${solvencyBlock}
+    ${fundingBlock}
     ${queues}
     <div class="card" style="margin-top:16px">
       <h3>Tools</h3>
@@ -159,7 +199,7 @@ export async function pageWithdrawals(env, db, user, message = "") {
         .map(
           (w) => `<tr>
             <td>#${w.id}<div class="muted small">${shortDate(w.created_at)}</div></td>
-            <td>${esc(w.mc_username || w.to_player_name || "—")}
+            <td>${esc(w.mc_username || w.to_player_name || "-")}
               <div class="muted small">${esc(w.discord_username || "")}</div></td>
             <td class="num">${money0(w.amount_cents)}</td>
             <td><span class="pill warn">${esc(w.status.replace("_", " "))}</span>
@@ -185,7 +225,7 @@ export async function pageWithdrawals(env, db, user, message = "") {
       `<b>Re-check</b> re-sends the original request with the same idempotency key.
        The Treasury will return the original result rather than paying again, so this is
        always safe. It resolves to <i>sent</i> or reverses the money back to the customer.
-       Never resolve one of these by paying the player manually — that's how someone gets
+       Never resolve one of these by paying the player manually - that's how someone gets
        paid twice.`
     )}
     <div class="card" style="margin-top:16px">
@@ -215,7 +255,7 @@ export async function doWithdrawalAction(env, db, user, request) {
       ? notice(`Withdrawal #${id} confirmed as <b>sent</b>. The customer was paid once.`, "good")
       : res.status === "failed"
       ? notice(`Withdrawal #${id} did not go through. The money has been returned.`, "good")
-      : notice(`Withdrawal #${id} is still unconfirmed. Leave it — do not pay manually.`, "warn");
+      : notice(`Withdrawal #${id} is still unconfirmed. Leave it - do not pay manually.`, "warn");
 
   return await pageWithdrawals(env, db, user, msg);
 }
@@ -232,7 +272,7 @@ export async function pageDeposits(env, db, user, message = "") {
           (d) => `<tr>
             <td>${shortDate(d.created_at)}</td>
             <td class="num">${money0(d.amount_cents)}</td>
-            <td class="small">${esc(d.memo || "—")}
+            <td class="small">${esc(d.memo || "-")}
               <div class="muted small">${esc(d.payer_uuid || "unknown payer")}</div></td>
             <td>
               <form method="POST" action="/admin/deposits" style="display:flex;gap:8px">
@@ -253,7 +293,7 @@ export async function pageDeposits(env, db, user, message = "") {
     ${notice(
       `Real money that arrived without a usable deposit code, held in suspense.
        Find the account number on the customer's page, then assign it here.
-       Assigning moves it out of suspense — it does not create money.`
+       Assigning moves it out of suspense - it does not create money.`
     )}
     <div class="card" style="margin-top:16px">
       <table><thead><tr><th>When</th><th style="text-align:right">Amount</th>
@@ -298,9 +338,9 @@ export async function pageCustomers(env, db, user, query = "", message = "") {
   const rows = results
     .map(
       (u) => `<tr>
-        <td>${esc(u.discord_username || "—")}
+        <td>${esc(u.discord_username || "-")}
           <div class="muted small">${esc(u.discord_id)}</div></td>
-        <td>${esc(u.mc_username || "—")}
+        <td>${esc(u.mc_username || "-")}
           ${u.mc_verified_at ? `<span class="pill good">verified</span>` : `<span class="pill">unverified</span>`}</td>
         <td class="num">${money0(u.total_cents)}</td>
         <td><span class="pill">${esc(u.role)}</span></td>
@@ -425,7 +465,7 @@ export async function pageAdjust(env, db, user, message = "") {
     ${message}
     ${notice(
       `Credits a customer account from <b>bank equity</b>, or debits one back to it.
-       This is real money on the books — it shows up in equity and in the audit log with
+       This is real money on the books - it shows up in equity and in the audit log with
        your name on it. Use it for corrections and goodwill, not for routine work.`,
       "warn"
     )}
@@ -434,8 +474,8 @@ export async function pageAdjust(env, db, user, message = "") {
         <div class="field"><label>Account number</label><input name="account_id" required></div>
         <div class="field"><label>Direction</label>
           <select name="direction">
-            <option value="credit">Credit — give money to the customer</option>
-            <option value="debit">Debit — take money back</option>
+            <option value="credit">Credit - give money to the customer</option>
+            <option value="debit">Debit - take money back</option>
           </select></div>
         <div class="field"><label>Amount</label><input name="amount" placeholder="0.00" inputmode="decimal" required></div>
         <div class="field"><label>Reason (required, recorded permanently)</label>
@@ -482,7 +522,7 @@ export async function doAdjust(env, db, user, request) {
       action: "ledger.manual_adjustment",
       targetType: "account",
       targetId: accountId,
-      detail: `${direction} ${money0(parsed.cents)} — ${reason}`,
+      detail: `${direction} ${money0(parsed.cents)} - ${reason}`,
     });
     return await pageAdjust(
       env, db, user,
@@ -523,7 +563,7 @@ export async function pageReconciliation(env, db, user, message = "") {
       ? notice(
           `<b>${unbalanced.length}</b> unbalanced entr(ies) and <b>${mismatches.length}</b>
            account(s) whose cached balance disagrees with their postings.
-           Do not "fix" balances until the cause is understood — rebuilding destroys the evidence.`,
+           Do not "fix" balances until the cause is understood - rebuilding destroys the evidence.`,
           "bad"
         )
       : notice(`Books balance. Every entry sums to zero and every cached balance matches its postings.`, "good");
@@ -582,7 +622,7 @@ export async function pageSettings(env, db, user, message = "") {
       "Savings interest (basis points per month)",
       savings,
       `200 = 2.00% monthly, which compounds to roughly 27% a year. Interest is paid from
-       bank equity — if lending income doesn't cover it, equity falls every month.`
+       bank equity - if lending income doesn't cover it, equity falls every month.`
     )}
     ${setting(
       "withdrawals_paused",
