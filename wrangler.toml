@@ -1,14 +1,19 @@
-name = "ze-bank"
+# Must match the Worker name the CI build expects, or Workers Builds overrides
+# it and deploys under a different name than local `wrangler deploy` does.
+name = "ze-banking"
 main = "src/index.js"
 compatibility_date = "2026-06-01"
 
-# Pin the account so wrangler never shows the "Select an account" prompt.
-# account_id = "PASTE-ZE-ACCOUNT-ID"
+# V1's account, where the repo's Workers Build runs. Pinned so the CLI and CI
+# never disagree about which account they're deploying to.
+account_id = "44e5e10adf532b039a51d6f05472aa58"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "ze-bank"
-database_id = "PASTE-AFTER-wrangler-d1-create"
+# Fill from `npx wrangler d1 create ze-bank`. Must be a database on the account
+# above — an id from another account fails with "could not be found [7404]".
+database_id = "9af86057-3531-4305-beee-7ceae2fef003"
 
 # Deposit ingestion + reconciliation every 5 minutes; interest is checked
 # hourly and only acts on the 1st (the UNIQUE(account_id, period) constraint
