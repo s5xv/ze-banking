@@ -21,10 +21,12 @@
 
 import * as ledger from "./ledger.js";
 import * as treasury from "./treasury.js";
+import { tryCompleteVerification } from "./auth.js";
 
 // Deposit codes are 16 hex chars. Players paste them into a /pay memo along
 // with whatever else they type, so we extract rather than compare.
 const CODE_RE = /\b[0-9a-f]{16}\b/i;
+const VERIFY_RE = /\bVERIFY-[0-9A-F]{12}\b/i;
 
 /**
  * Work out which account a payment belongs to.
@@ -77,6 +79,29 @@ export async function creditPosting(db, item, { source = "feed" } = {}) {
     .first();
   if (already) {
     return { credited: false, duplicate: true, accountId: already.account_id, reason: "already-credited" };
+  }
+
+  // A verification payment proves ownership AND is still real money, so it
+  // gets credited like any other deposit. Run this BEFORE resolving the
+  // target: verifying links the uuid to a user, which is often what lets the
+  // deposit find an account at all.
+  const text = `${item.memo || ""} ${item.message || ""}`;
+  const vmatch = text.match(VERIFY_RE);
+  if (vmatch) {
+    try {
+      await tryCompleteVerification(db, {
+        code: vmatch[0].toUpperCase(),
+        payerUuid: item.initiatorUuid,
+      });
+    } catch (err) {
+      // Verification failing must never block crediting real money.
+      await ledger.audit(db, {
+        action: "verification.error",
+        targetType: "posting",
+        targetId: item.postingId,
+        detail: err.message,
+      });
+    }
   }
 
   const { account, how } = await resolveTarget(db, item);

@@ -205,6 +205,31 @@ CREATE TABLE IF NOT EXISTS interest_runs (
 );
 
 -- ---------------------------------------------------------------------------
+-- MC VERIFICATIONS — proving a user controls the Minecraft account they claim.
+--
+-- The user names an account, we generate a code, they send a small payment
+-- carrying that code. The proof is NOT the code (anyone could type it) — it is
+-- that the payment ARRIVED FROM the claimed uuid. `initiatorUuid` on the
+-- Treasury posting must match `mc_uuid` here, or the attempt is rejected.
+--
+-- Without this, anyone could claim any username and withdraw to it.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS mc_verifications (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL REFERENCES users(id),
+  mc_uuid      TEXT NOT NULL,
+  mc_username  TEXT NOT NULL,
+  code         TEXT NOT NULL UNIQUE,
+  amount_cents INTEGER NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'pending',
+  expires_at   TEXT NOT NULL,
+  verified_at  TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (status IN ('pending','verified','expired','rejected'))
+);
+CREATE INDEX IF NOT EXISTS idx_mcver_user ON mc_verifications(user_id, status);
+
+-- ---------------------------------------------------------------------------
 -- LEDGER CURSOR — position in the Treasury transaction feed.
 -- Single row (id = 1). Lets ingestion resume exactly where it stopped instead
 -- of re-scanning a fixed window and eventually missing transactions.
