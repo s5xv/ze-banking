@@ -123,6 +123,33 @@ export default {
 
       if (path === "/health") return json({ ok: true, service: "ze-bank" });
 
+      // One-time helper for finding POOL_ACCOUNT_ID. Lists the firm's accounts
+      // so you can pick the one that will hold customer funds.
+      // Gated on TOKEN_SECRET because it exposes firm balances.
+      if (path === "/setup/treasury") {
+        const key = url.searchParams.get("key") || "";
+        if (!env.TOKEN_SECRET || key !== env.TOKEN_SECRET) {
+          return json({ ok: false, error: "pass ?key=<TOKEN_SECRET>" }, 401);
+        }
+        if (!env.DC_API_TOKEN) return json({ ok: false, error: "DC_API_TOKEN not set yet" }, 400);
+
+        const me = await treasury.whoami(env);
+        let accounts = [];
+        try {
+          accounts = await treasuryFirmAccounts(env);
+        } catch (e) {
+          return json({ ok: false, me, error: `could not list firm accounts: ${e.message}` }, 502);
+        }
+        return json({
+          ok: true,
+          note: "Set POOL_ACCOUNT_ID to the accountId that will hold customer deposits.",
+          keyType: me.keyType,
+          firmId: me.firmId,
+          personalAccountId: me.accountId,
+          accounts,
+        });
+      }
+
       // Treasury deposit webhook. Verifies a signature, then pulls the
       // authoritative feed — the payload itself is never trusted to create
       // money. See deposits.js.
@@ -176,6 +203,16 @@ export default {
     );
   },
 };
+
+/** Firm accounts, for the setup helper above. */
+async function treasuryFirmAccounts(env) {
+  const res = await fetch("https://api.democracycraft.net/economy/api/v1/firms/me/accounts", {
+    headers: { Authorization: `Bearer ${env.DC_API_TOKEN}`, accept: "application/json" },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
+  return data;
+}
 
 /**
  * Reconciliation: does the real Treasury balance match what our books say it
