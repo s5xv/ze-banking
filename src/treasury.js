@@ -102,6 +102,23 @@ export async function accountForPlayer(env, { name = null, uuid = null }) {
   }
 }
 
+/**
+ * Public details of any firm by name. Used to confirm a firm exists before a
+ * business account is opened against it.
+ *
+ * Note this does NOT tell us who owns or works at that firm. The employee
+ * endpoints only cover the firm our own key belongs to, so business
+ * membership is managed inside the bank rather than mirrored from the server.
+ */
+export async function publicFirm(env, firmName) {
+  try {
+    return await request(env, `/api/v1/firms/${encodeURIComponent(firmName)}`);
+  } catch (err) {
+    if (err.status === 404) return null;
+    throw err;
+  }
+}
+
 /** Pool balance in integer cents - the bank's real assets. */
 export async function poolBalanceCents(env) {
   const id = env.POOL_ACCOUNT_ID;

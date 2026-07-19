@@ -129,9 +129,20 @@ export async function getAccount(db, id) {
   return await db.prepare(`SELECT * FROM accounts WHERE id = ?`).bind(id).first();
 }
 
+/**
+ * A person's own accounts.
+ *
+ * Excludes business accounts. Those are stored as ordinary checking accounts
+ * owned by the user who created them (see migration 003 for why), so without
+ * this filter a company's money would appear in its owner's personal list.
+ */
 export async function listUserAccounts(db, userId) {
   const { results } = await db
-    .prepare(`SELECT * FROM accounts WHERE owner_user_id = ? AND status <> 'closed' ORDER BY id`)
+    .prepare(
+      `SELECT * FROM accounts
+        WHERE owner_user_id = ? AND status <> 'closed' AND owner_business_id IS NULL
+        ORDER BY id`
+    )
     .bind(userId)
     .all();
   return results;
@@ -189,12 +200,17 @@ export async function getAccountByDepositCode(db, code) {
   return await db.prepare(`SELECT * FROM accounts WHERE deposit_code = ?`).bind(code).first();
 }
 
-/** Where a deposit goes when we know the player but not the account. */
+/**
+ * Where a deposit goes when we know the player but not the account.
+ * Personal accounts only: money paid by a person without a code should never
+ * silently land in a company account they happen to own.
+ */
 export async function defaultAccountForUser(db, userId) {
   return await db
     .prepare(
       `SELECT * FROM accounts
        WHERE owner_user_id = ? AND kind = 'checking' AND status = 'active'
+         AND owner_business_id IS NULL
        ORDER BY id LIMIT 1`
     )
     .bind(userId)

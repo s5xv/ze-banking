@@ -14,6 +14,7 @@ import * as auth from "./auth.js";
 import * as customer from "./customer.js";
 import * as admin from "./admin.js";
 import * as interest from "./interest.js";
+import * as business from "./business.js";
 import { formatCents } from "./money.js";
 
 const json = (obj, status = 200) =>
@@ -295,6 +296,16 @@ export default {
             if (res && res.paid) console.log("interest run:", JSON.stringify(res));
           } catch (err) {
             console.error("interest run failed:", err.message);
+          }
+
+          // Monthly tier fees. Same guarantees as interest: a UNIQUE
+          // (business_id, period) row plus a deterministic entry key, so
+          // repeated runs cannot bill twice.
+          try {
+            const res = await business.billAll(env.DB);
+            if (res && (res.charged || res.failed)) console.log("tier billing:", JSON.stringify(res));
+          } catch (err) {
+            console.error("tier billing failed:", err.message);
           }
         }
       })()
