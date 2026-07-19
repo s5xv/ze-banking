@@ -13,6 +13,7 @@ import * as withdrawals from "./withdrawals.js";
 import * as auth from "./auth.js";
 import * as customer from "./customer.js";
 import * as admin from "./admin.js";
+import * as interest from "./interest.js";
 import { formatCents } from "./money.js";
 
 const json = (obj, status = 200) =>
@@ -138,6 +139,7 @@ export default {
           if (path === "/app/withdraw") return await customer.doWithdraw(env, env.DB, user, request);
           if (path === "/app/transfer") return await customer.doTransfer(env, env.DB, user, request);
           if (path === "/app/verify") return await customer.doVerify(env, env.DB, user, request);
+          if (path === "/app/accounts/open") return await customer.doOpenAccount(env, env.DB, user, request);
           return new Response("Method not allowed", { status: 405 });
         }
 
@@ -274,12 +276,23 @@ export default {
           console.error("withdrawal review failed:", err.message);
         }
 
-        // Hourly: prove the books balance.
+        // Hourly: prove the books balance, then pay any interest due.
         if (event.cron === "0 * * * *") {
           try {
             await reconcile(env, env.DB);
           } catch (err) {
             console.error("reconcile failed:", err.message);
+          }
+
+          // Runs every hour but only acts in the first three days of the
+          // month, and every payment is guarded by a deterministic
+          // idempotency key, so repeated runs cannot pay twice. The window
+          // means a bank that was down on the 1st still pays its customers.
+          try {
+            const res = await interest.maybeRunMonthly(env, env.DB);
+            if (res && res.paid) console.log("interest run:", JSON.stringify(res));
+          } catch (err) {
+            console.error("interest run failed:", err.message);
           }
         }
       })()

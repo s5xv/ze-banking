@@ -141,6 +141,24 @@ export async function pageHome(env, db, user) {
         .join("")
     : `<div class="empty">No accounts yet.</div>`;
 
+  // Offer savings only if they haven't got one. Rate comes from settings so
+  // the offer always matches what actually gets paid.
+  const hasSavings = accounts.some((a) => a.kind === "savings");
+  let savingsOffer = "";
+  if (!hasSavings) {
+    const bps = await ledger.getSetting(db, "savings_rate_bps", "200");
+    savingsOffer = `<div class="card" style="margin-top:16px">
+      <h3>Open a savings account</h3>
+      <p class="muted small">Earn ${(Number(bps) / 100).toFixed(2)}% a month, paid at the
+      start of each month. Interest is calculated on your balance at the start of the
+      month, so money deposited part way through starts earning from the next one.</p>
+      <form method="POST" action="/app/accounts/open">
+        <input type="hidden" name="kind" value="savings">
+        <button class="btn" type="submit">Open savings account</button>
+      </form>
+    </div>`;
+  }
+
   const body = `<section>
     <h1>Your money</h1>
     <p class="muted">Signed in as ${esc(user.discord_username)}${
@@ -160,8 +178,39 @@ export async function pageHome(env, db, user) {
       <h2>Accounts</h2>
       ${rows}
     </div>
+    ${savingsOffer}
   </section>`;
   return html(layout("Accounts", body, { user, active: "home" }));
+}
+
+/** Open an additional account. Currently savings only. */
+export async function doOpenAccount(env, db, user, request) {
+  const form = await request.formData();
+  const kind = String(form.get("kind") || "");
+  if (kind !== "savings") return redirect("/app");
+
+  const existing = await ledger.listUserAccounts(db, user.id);
+  if (existing.some((a) => a.kind === "savings")) return redirect("/app");
+
+  const bps = parseInt(await ledger.getSetting(db, "savings_rate_bps", "200"), 10) || 0;
+  // interest_bps is left at 0 so the account follows the global rate. A
+  // non-zero value here would pin it, which is for fixed-rate products later.
+  const id = await ledger.openAccount(db, {
+    userId: user.id,
+    kind: "savings",
+    label: "Savings",
+    interestBps: 0,
+  });
+
+  await ledger.audit(db, {
+    actorId: user.id,
+    action: "account.opened",
+    targetType: "account",
+    targetId: id,
+    detail: `savings at ${bps} bps`,
+  });
+
+  return redirect("/app");
 }
 
 // ---------------------------------------------------------------------------
