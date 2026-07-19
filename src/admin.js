@@ -180,6 +180,7 @@ export async function pageDashboard(env, db, user, message = "") {
         <a class="btn ghost sm" href="/admin/customers">Customers</a>
         <a class="btn ghost sm" href="/admin/adjust">Manual entry</a>
         <a class="btn ghost sm" href="/admin/reconciliation">Reconciliation</a>
+        <a class="btn ghost sm" href="/admin/webhooks">Notifications</a>
         <a class="btn ghost sm" href="/admin/settings">Settings</a>
         <a class="btn ghost sm" href="/admin/audit">Audit log</a>
       </div>
@@ -668,6 +669,135 @@ export async function doSettings(env, db, user, request) {
       : "";
 
   return await pageSettings(env, db, user, notice("Saved.", "good") + extra);
+}
+
+// ---------------------------------------------------------------------------
+// webhook registration
+// ---------------------------------------------------------------------------
+// Deposits are found by polling every 5 minutes. Registering a webhook tells
+// the Treasury to push instead, so money lands in seconds. The poller keeps
+// running as a safety net; both paths are idempotent on postingId, so a
+// deposit seen twice is still credited once.
+export async function pageWebhooks(env, db, user, message = "") {
+  let existing = [];
+  let error = null;
+  try {
+    const res = await treasury.listWebhooks(env);
+    existing = res.webhooks || [];
+  } catch (err) {
+    error = err.message;
+  }
+
+  const expectedUrl = `${env.PUBLIC_URL || "https://your-worker-url"}/webhooks/treasury`;
+
+  const rows = existing
+    .map(
+      (w) => `<tr>
+        <td class="small" style="word-break:break-all">${esc(w.url)}</td>
+        <td>${w.active ? `<span class="pill good">active</span>` : `<span class="pill bad">inactive</span>`}</td>
+        <td>${w.consecutiveFailures || 0}</td>
+        <td style="text-align:right">
+          <form method="POST" action="/admin/webhooks" style="display:inline">
+            <input type="hidden" name="action" value="delete">
+            <input type="hidden" name="id" value="${w.id}">
+            <button class="btn ghost sm" type="submit">Remove</button>
+          </form>
+        </td>
+      </tr>`
+    )
+    .join("");
+
+  const body = `<section>
+    <a class="muted small" href="/admin">Back to admin</a>
+    <h1 style="margin-top:10px">Deposit notifications</h1>
+    ${message}
+    ${error ? notice(`Could not reach the Treasury: ${esc(error)}`, "bad") : ""}
+    ${notice(
+      `Without a webhook, deposits are picked up by a poller every 5 minutes.
+       With one, they arrive in seconds. The poller keeps running either way, so
+       nothing breaks if the webhook fails.`
+    )}
+
+    <div class="card" style="margin-top:16px">
+      <h3>Register this bank</h3>
+      <p class="muted small">The Treasury will send deposit notifications to:</p>
+      <div class="code">${esc(expectedUrl)}</div>
+      <p class="muted small" style="margin-top:12px">
+        Registering returns a signing secret. You must save it as
+        <code>WEBHOOK_SECRET</code> or incoming calls will be rejected.
+      </p>
+      <form method="POST" action="/admin/webhooks" style="margin-top:12px">
+        <input type="hidden" name="action" value="register">
+        <button class="btn" type="submit">Register webhook</button>
+      </form>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Registered</h3>
+      <table><thead><tr><th>URL</th><th>Status</th><th>Failures</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="4" class="muted">None registered. Deposits are polled.</td></tr>`}</tbody></table>
+    </div>
+  </section>`;
+  return html(layout("Webhooks", body, { user, active: "admin" }));
+}
+
+export async function doWebhookAction(env, db, user, request) {
+  if (user.role !== "admin") return new Response("Admins only", { status: 403 });
+
+  const form = await request.formData();
+  const action = String(form.get("action") || "");
+
+  if (action === "register") {
+    const url = `${env.PUBLIC_URL || ""}/webhooks/treasury`;
+    if (!env.PUBLIC_URL) {
+      return await pageWebhooks(
+        env, db, user,
+        notice(`Set <code>PUBLIC_URL</code> in wrangler.toml first, so the Treasury knows where to call.`, "bad")
+      );
+    }
+    try {
+      const res = await treasury.registerWebhook(env, url);
+      await ledger.audit(db, {
+        actorId: user.id,
+        action: "webhook.registered",
+        targetType: "webhook",
+        targetId: res.id,
+        detail: url,
+      });
+      // The secret is shown ONCE. It is not stored here, because storing it in
+      // the database would put a credential somewhere it does not belong.
+      return await pageWebhooks(
+        env, db, user,
+        notice(
+          `<b>Registered.</b> Save this now, it will not be shown again:
+           <div class="code" style="margin-top:10px">${esc(res.secret || "(no secret returned)")}</div>
+           <p class="small" style="margin-bottom:0">Then run:
+           <code>npx wrangler secret put WEBHOOK_SECRET</code></p>`,
+          "good"
+        )
+      );
+    } catch (err) {
+      return await pageWebhooks(env, db, user, notice(esc(err.message), "bad"));
+    }
+  }
+
+  if (action === "delete") {
+    const id = parseInt(form.get("id"), 10);
+    try {
+      await treasury.deleteWebhook(env, id);
+      await ledger.audit(db, {
+        actorId: user.id,
+        action: "webhook.deleted",
+        targetType: "webhook",
+        targetId: id,
+      });
+      return await pageWebhooks(env, db, user, notice(`Removed. Deposits fall back to polling.`, "good"));
+    } catch (err) {
+      return await pageWebhooks(env, db, user, notice(esc(err.message), "bad"));
+    }
+  }
+
+  return redirect("/admin/webhooks");
 }
 
 // ---------------------------------------------------------------------------

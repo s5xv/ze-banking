@@ -23,6 +23,14 @@ crons = ["*/5 * * * *", "0 * * * *"]
 
 [vars]
 BANK_NAME = "Z&E Bank"
+
+# The bank's own public URL. Used to tell the Treasury where to send deposit
+# notifications, so it must be exact and must be updated if you move to a
+# custom domain (the webhook then needs re-registering).
+PUBLIC_URL = "https://ze-banking.saidsite13.workers.dev"
+
+# The in-game firm name customers type in /pay.
+BANK_FIRM_NAME = "ZEBank"
 ADMIN_DISCORD_IDS = "1502172252811034735"
 # ---------------------------------------------------------------------------
 # SECRETS - never in this file.
