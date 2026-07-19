@@ -437,6 +437,136 @@ export async function billAll(db, { now = new Date() } = {}) {
   return { charged, failed, skipped };
 }
 
+// ---------------------------------------------------------------------------
+// admin operations
+// ---------------------------------------------------------------------------
+// These bypass the owner checks that apply to customers, because staff need to
+// resolve disputes, reverse fraudulent registrations, and fix mistakes. Every
+// one of them is audit logged with the acting admin.
+
+export async function listAllBusinesses(db, { query = "" } = {}) {
+  const base = `SELECT b.*,
+      (SELECT COUNT(*) FROM business_members m WHERE m.business_id = b.id) AS member_count,
+      (SELECT COALESCE(SUM(a.balance_cents),0) FROM accounts a WHERE a.owner_business_id = b.id) AS balance_cents,
+      u.discord_username AS owner_name, u.mc_username AS owner_mc
+    FROM businesses b LEFT JOIN users u ON u.id = b.owner_user_id`;
+
+  const stmt = query
+    ? db
+        .prepare(
+          `${base} WHERE LOWER(b.firm_name) LIKE ?1 OR LOWER(b.display_name) LIKE ?1
+           ORDER BY b.id DESC LIMIT 100`
+        )
+        .bind(`%${query.toLowerCase()}%`)
+    : db.prepare(`${base} ORDER BY b.id DESC LIMIT 100`);
+
+  const { results } = await stmt.all();
+  return results;
+}
+
+export async function setBusinessStatus(db, businessId, status, actor) {
+  if (!["active", "overdue", "suspended", "closed"].includes(status)) throw new Error("Bad status.");
+  await db.prepare(`UPDATE businesses SET status = ? WHERE id = ?`).bind(status, businessId).run();
+  await ledger.audit(db, {
+    actorId: actor.id,
+    action: "business.status_changed",
+    targetType: "business",
+    targetId: businessId,
+    detail: status,
+  });
+}
+
+/**
+ * Move ownership to another member. Used when a firm changes hands in game, or
+ * when someone registered a company that was not theirs.
+ */
+export async function transferOwnership(db, businessId, newOwnerUserId, actor) {
+  const current = await db
+    .prepare(`SELECT * FROM business_members WHERE business_id = ? AND role = 'owner'`)
+    .bind(businessId)
+    .first();
+
+  const target = await db
+    .prepare(`SELECT * FROM business_members WHERE business_id = ? AND user_id = ?`)
+    .bind(businessId, newOwnerUserId)
+    .first();
+  if (!target) throw new Error("That person is not a member of this company.");
+
+  const statements = [
+    db.prepare(`UPDATE business_members SET role = 'owner' WHERE business_id = ? AND user_id = ?`)
+      .bind(businessId, newOwnerUserId),
+    db.prepare(`UPDATE businesses SET owner_user_id = ? WHERE id = ?`).bind(newOwnerUserId, businessId),
+  ];
+  if (current && current.user_id !== newOwnerUserId) {
+    statements.push(
+      db.prepare(`UPDATE business_members SET role = 'manager' WHERE business_id = ? AND user_id = ?`)
+        .bind(businessId, current.user_id)
+    );
+  }
+  await db.batch(statements);
+
+  await ledger.audit(db, {
+    actorId: actor.id,
+    action: "business.ownership_transferred",
+    targetType: "business",
+    targetId: businessId,
+    detail: `to user ${newOwnerUserId}`,
+  });
+}
+
+/** Extend a paid-until date without taking money. For goodwill or comping. */
+export async function grantPaidUntil(db, businessId, months, actor) {
+  const n = Math.max(1, Math.min(24, parseInt(months, 10) || 1));
+  await db
+    .prepare(
+      `UPDATE businesses
+          SET paid_until = datetime(COALESCE(MAX(paid_until, datetime('now')), datetime('now')), '+' || ? || ' months'),
+              status = 'active'
+        WHERE id = ?`
+    )
+    .bind(n, businessId)
+    .run();
+  await ledger.audit(db, {
+    actorId: actor.id,
+    action: "business.comped",
+    targetType: "business",
+    targetId: businessId,
+    detail: `${n} month(s) granted without charge`,
+  });
+}
+
+/** Force a billing attempt now, outside the normal window. */
+export async function billNow(db, businessId, actor) {
+  const b = await getBusiness(db, businessId);
+  if (!b) throw new Error("Company not found.");
+  const res = await billBusiness(db, b, { now: new Date() });
+  await ledger.audit(db, {
+    actorId: actor.id,
+    action: "business.billed_manually",
+    targetType: "business",
+    targetId: businessId,
+    detail: JSON.stringify(res),
+  });
+  return res;
+}
+
+export async function adminRemoveMember(db, businessId, userId, actor) {
+  const role = await roleFor(db, businessId, userId);
+  if (!role) throw new Error("Not a member.");
+  if (role === "owner") throw new Error("Transfer ownership before removing the owner.");
+  await db
+    .prepare(`DELETE FROM business_members WHERE business_id = ? AND user_id = ?`)
+    .bind(businessId, userId)
+    .run();
+  await ledger.audit(db, {
+    actorId: actor.id,
+    action: "business.member_removed_by_staff",
+    targetType: "business",
+    targetId: businessId,
+    detail: String(userId),
+  });
+}
+
 export async function chargeHistory(db, businessId, limit = 12) {
   const { results } = await db
     .prepare(

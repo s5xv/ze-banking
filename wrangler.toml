@@ -29,8 +29,11 @@ BANK_NAME = "Z&E Bank"
 # custom domain (the webhook then needs re-registering).
 PUBLIC_URL = "https://ze-banking.saidsite13.workers.dev"
 
-# The in-game firm name customers type in /pay.
-BANK_FIRM_NAME = "ZEBank"
+# The in-game account name customers pay. Used to build the command shown on
+# every deposit and verification page:
+#   /pay-account business ZEB <amount> <memo>
+# If this is wrong, every customer is handed a command that silently fails.
+BANK_ACCOUNT_NAME = "ZEB"
 ADMIN_DISCORD_IDS = "1502172252811034735"
 # ---------------------------------------------------------------------------
 # SECRETS - never in this file.

@@ -21,6 +21,19 @@ export const json = (obj, status = 200) =>
 export const redirect = (to) => new Response(null, { status: 302, headers: { location: to } });
 
 export const money = (cents) => formatCents(cents);
+
+/**
+ * The in game command a customer runs to pay the bank.
+ *
+ * Kept in one place because it appears on the deposit page, the verification
+ * page, company pages and the admin funding panel. If the format or the
+ * account name ever changes, every instruction on the site has to change with
+ * it, or customers are handed a command that silently fails.
+ *
+ *   /pay-account business ZEB <amount> <memo>
+ */
+export const payCommand = (env, amount, memo) =>
+  `/pay-account business ${env.BANK_ACCOUNT_NAME || "ZEB"} ${amount} ${memo}`;
 export const shortDate = (s) => esc(String(s || "").slice(0, 16).replace("T", " "));
 
 const THEME_SCRIPT = `<script>

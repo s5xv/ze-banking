@@ -7,9 +7,7 @@
 import * as ledger from "./ledger.js";
 import * as biz from "./business.js";
 import { parseUserAmount } from "./money.js";
-import { esc, html, layout, money, signedMoney, shortDate, notice, redirect } from "./views.js";
-
-const PAY_TO = (env) => env.BANK_FIRM_NAME || "ZEBank";
+import { esc, html, layout, money, signedMoney, shortDate, notice, redirect, payCommand } from "./views.js";
 
 // Logos are stored as base64 in the database, so they must be small and must
 // not be SVG. An SVG can carry script and this string goes straight into an
@@ -218,7 +216,7 @@ export async function pageBusiness(env, db, user, businessId, message = "") {
       ${
         account && account.deposit_code
           ? `<p class="muted small" style="margin-top:10px;margin-bottom:6px">Pay this in game to fund the company:</p>
-             <div class="code">/pay ${esc(PAY_TO(env))} &lt;amount&gt; ${esc(account.deposit_code)}</div>`
+             <div class="code">${esc(payCommand(env, "<amount>", account.deposit_code))}</div>`
           : ""
       }
       ${

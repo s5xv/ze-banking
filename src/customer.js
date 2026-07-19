@@ -10,9 +10,7 @@ import * as ledger from "./ledger.js";
 import * as auth from "./auth.js";
 import * as withdrawals from "./withdrawals.js";
 import { parseUserAmount } from "./money.js";
-import { esc, html, layout, money, signedMoney, shortDate, notice, redirect } from "./views.js";
-
-const PAY_TO = (env) => env.BANK_FIRM_NAME || "ZEBank";
+import { esc, html, layout, money, signedMoney, shortDate, notice, redirect, payCommand } from "./views.js";
 
 // ---------------------------------------------------------------------------
 // public landing page
@@ -259,7 +257,7 @@ export async function pageDeposit(env, db, user) {
       (a) => `<div class="card" style="margin-top:14px">
         <h3>${esc(a.label || a.kind)}</h3>
         <p class="muted small">Pay this in game. The code is permanent - reuse it every time.</p>
-        <div class="code">/pay ${esc(PAY_TO(env))} &lt;amount&gt; ${esc(a.deposit_code)}</div>
+        <div class="code">${esc(payCommand(env, "<amount>", a.deposit_code))}</div>
       </div>`
     )
     .join("");
@@ -460,7 +458,7 @@ export async function pageVerify(env, db, user, message = "") {
         <p class="muted small">Send exactly ${money(pending.amount_cents)} from
         <b>${esc(pending.mc_username)}</b> with this memo. The money is credited to your
         account - it isn't a fee.</p>
-        <div class="code">/pay ${esc(PAY_TO(env))} ${(pending.amount_cents / 100).toFixed(2)} ${esc(pending.code)}</div>
+        <div class="code">${esc(payCommand(env, (pending.amount_cents / 100).toFixed(2), pending.code))}</div>
         <p class="muted small" style="margin-top:12px">It must come from that account -
         that's what proves it's yours. Refresh this page once you've paid.</p>
       </div>`

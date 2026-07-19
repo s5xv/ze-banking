@@ -14,8 +14,9 @@ import * as ledger from "./ledger.js";
 import * as treasury from "./treasury.js";
 import * as deposits from "./deposits.js";
 import * as withdrawals from "./withdrawals.js";
+import * as biz from "./business.js";
 import { parseUserAmount, formatCents } from "./money.js";
-import { esc, html, layout, money, signedMoney, shortDate, notice, redirect } from "./views.js";
+import { esc, html, layout, money, signedMoney, shortDate, notice, redirect, payCommand } from "./views.js";
 
 const money0 = (c) => formatCents(c);
 
@@ -148,7 +149,7 @@ export async function pageDashboard(env, db, user, message = "") {
           ? `<p class="muted small" style="margin-top:14px;margin-bottom:6px">
                To put money into the bank, pay this code in game. It credits bank
                capital, not a customer account.</p>
-             <div class="code">/pay ${esc(env.BANK_FIRM_NAME || "ZEBank")} &lt;amount&gt; ${esc(equity.deposit_code)}</div>`
+             <div class="code">${esc(payCommand(env, "<amount>", equity.deposit_code))}</div>`
           : `<p class="muted small">Run migration 002 to generate the funding code.</p>`
       }
     </div>`;
@@ -178,6 +179,7 @@ export async function pageDashboard(env, db, user, message = "") {
       <h3>Tools</h3>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
         <a class="btn ghost sm" href="/admin/customers">Customers</a>
+        <a class="btn ghost sm" href="/admin/businesses">Companies</a>
         <a class="btn ghost sm" href="/admin/adjust">Manual entry</a>
         <a class="btn ghost sm" href="/admin/reconciliation">Reconciliation</a>
         <a class="btn ghost sm" href="/admin/webhooks">Notifications</a>
@@ -371,24 +373,84 @@ export async function pageCustomer(env, db, user, customerId, message = "") {
   const c = await db.prepare(`SELECT * FROM users WHERE id = ?`).bind(customerId).first();
   if (!c) return html(layout("Not found", `<section><h1>No such customer</h1></section>`, { user }), 404);
 
-  const accounts = await ledger.listUserAccounts(db, c.id);
+  // Every account the person touches, including company accounts they own, so
+  // staff see the full picture from one page.
+  const { results: accounts } = await db
+    .prepare(
+      `SELECT a.*, b.display_name AS business_name
+         FROM accounts a
+         LEFT JOIN businesses b ON b.id = a.owner_business_id
+        WHERE a.owner_user_id = ? AND a.status <> 'closed'
+        ORDER BY a.id`
+    )
+    .bind(c.id)
+    .all();
+
   const accountRows = accounts
     .map(
       (a) => `<div class="acct-row">
         <div><b>${esc(a.label || a.kind)}</b> <span class="muted small">#${a.id}</span>
           <div class="muted small">${esc(a.kind)} · ${esc(a.status)}
+            ${a.business_name ? `· company: ${esc(a.business_name)}` : ""}
+            ${a.interest_bps ? `· ${(a.interest_bps / 100).toFixed(2)}% fixed` : ""}
             ${a.deposit_code ? `· code <code>${esc(a.deposit_code)}</code>` : ""}</div></div>
         <div style="text-align:right">
           <div style="font-weight:700">${money0(a.balance_cents)}</div>
-          <form method="POST" action="/admin/customer/${c.id}" style="margin-top:6px">
-            <input type="hidden" name="action" value="${a.status === "frozen" ? "unfreeze" : "freeze"}">
-            <input type="hidden" name="account_id" value="${a.id}">
-            <button class="btn ghost sm" type="submit">${a.status === "frozen" ? "Unfreeze" : "Freeze"}</button>
-          </form>
+          <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end;flex-wrap:wrap">
+            <a class="btn ghost sm" href="/admin/adjust?account=${a.id}">Adjust</a>
+            <form method="POST" action="/admin/customer/${c.id}" style="display:inline">
+              <input type="hidden" name="action" value="${a.status === "frozen" ? "unfreeze" : "freeze"}">
+              <input type="hidden" name="account_id" value="${a.id}">
+              <button class="btn ghost sm" type="submit">${a.status === "frozen" ? "Unfreeze" : "Freeze"}</button>
+            </form>
+            ${
+              a.balance_cents === 0 && !a.owner_business_id
+                ? `<form method="POST" action="/admin/customer/${c.id}" style="display:inline">
+                     <input type="hidden" name="action" value="close_account">
+                     <input type="hidden" name="account_id" value="${a.id}">
+                     <button class="btn ghost sm" type="submit">Close</button>
+                   </form>`
+                : ""
+            }
+          </div>
         </div>
       </div>`
     )
     .join("");
+
+  const hasSavings = accounts.some((a) => a.kind === "savings" && !a.owner_business_id);
+
+  const accountTools = `
+    <div class="card" style="margin-top:16px">
+      <h3>Open an account for them</h3>
+      <form method="POST" action="/admin/customer/${c.id}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <input type="hidden" name="action" value="open_account">
+        <select name="kind" style="width:auto">
+          <option value="checking">Checking</option>
+          <option value="savings"${hasSavings ? " disabled" : ""}>Savings</option>
+        </select>
+        <button class="btn ghost sm" type="submit">Open</button>
+      </form>
+      <p class="muted small" style="margin-bottom:0">Accounts can only be closed at a zero
+      balance, so money can never be stranded in a closed account.</p>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Fix a rate</h3>
+      <p class="muted small" style="margin-top:0">Overrides the global savings rate for one
+      account. Leave at 0 to follow the global rate.</p>
+      <form method="POST" action="/admin/customer/${c.id}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <input type="hidden" name="action" value="set_rate">
+        <select name="account_id" style="width:auto">
+          ${accounts
+            .filter((a) => a.kind === "savings")
+            .map((a) => `<option value="${a.id}">#${a.id} ${esc(a.label || "")}</option>`)
+            .join("") || `<option value="">no savings accounts</option>`}
+        </select>
+        <input name="bps" placeholder="basis points, e.g. 300" style="width:200px">
+        <button class="btn ghost sm" type="submit">Set</button>
+      </form>
+    </div>`;
 
   const body = `<section>
     <a class="muted small" href="/admin/customers">← Customers</a>
@@ -398,6 +460,7 @@ export async function pageCustomer(env, db, user, customerId, message = "") {
       · role ${esc(c.role)}</p>
     ${message}
     <div class="card" style="margin-top:16px"><h3>Accounts</h3>${accountRows || `<p class="muted">None.</p>`}</div>
+    ${accountTools}
     ${
       user.role === "admin"
         ? `<div class="card" style="margin-top:16px">
@@ -411,7 +474,17 @@ export async function pageCustomer(env, db, user, customerId, message = "") {
               </select>
               <button class="btn ghost" type="submit" ${c.id === user.id ? "disabled" : ""}>Update</button>
             </form>
-            ${c.id === user.id ? `<p class="muted small">You can't change your own role.</p>` : ""}
+            ${c.id === user.id ? `<p class="muted small">You cannot change your own role.</p>` : ""}
+          </div>
+          <div class="card" style="margin-top:16px">
+            <h3>Access</h3>
+            <p class="muted small" style="margin-top:0">Suspending blocks login entirely. Their
+            money is untouched and their balances keep earning interest.</p>
+            <form method="POST" action="/admin/customer/${c.id}">
+              <input type="hidden" name="action" value="${c.status === "suspended" ? "unsuspend" : "suspend"}">
+              <button class="btn ghost sm" type="submit" ${c.id === user.id ? "disabled" : ""}>
+                ${c.status === "suspended" ? "Restore access" : "Suspend customer"}</button>
+            </form>
           </div>`
         : ""
     }
@@ -433,6 +506,82 @@ export async function doCustomerAction(env, db, user, customerId, request) {
       targetId: accountId,
     });
     return await pageCustomer(env, db, user, customerId, notice(`Account ${action}d.`, "good"));
+  }
+
+  if (action === "open_account") {
+    const kind = String(form.get("kind"));
+    if (!["checking", "savings"].includes(kind)) return redirect(`/admin/customer/${customerId}`);
+    const id = await ledger.openAccount(db, {
+      userId: Number(customerId),
+      kind,
+      label: kind === "savings" ? "Savings" : "Checking",
+    });
+    await ledger.audit(db, {
+      actorId: user.id,
+      action: "account.opened_by_staff",
+      targetType: "account",
+      targetId: id,
+      detail: `${kind} for user ${customerId}`,
+    });
+    return await pageCustomer(env, db, user, customerId, notice(`Opened account #${id}.`, "good"));
+  }
+
+  if (action === "close_account") {
+    const accountId = parseInt(form.get("account_id"), 10);
+    const acct = await ledger.getAccount(db, accountId);
+    if (!acct) return redirect(`/admin/customer/${customerId}`);
+    // Refusing to close a non-empty account is what stops money being
+    // stranded somewhere nobody can reach it.
+    if (acct.balance_cents !== 0) {
+      return await pageCustomer(
+        env, db, user, customerId,
+        notice("Empty the account before closing it. Money in a closed account is unreachable.", "bad")
+      );
+    }
+    await ledger.setAccountStatus(db, accountId, "closed");
+    await ledger.audit(db, {
+      actorId: user.id,
+      action: "account.closed",
+      targetType: "account",
+      targetId: accountId,
+    });
+    return await pageCustomer(env, db, user, customerId, notice("Account closed.", "good"));
+  }
+
+  if (action === "set_rate") {
+    const accountId = parseInt(form.get("account_id"), 10);
+    const bps = parseInt(form.get("bps"), 10);
+    if (!Number.isFinite(accountId) || !Number.isFinite(bps) || bps < 0 || bps > 10000) {
+      return await pageCustomer(env, db, user, customerId, notice("Rate must be 0 to 10000 basis points.", "bad"));
+    }
+    const before = await ledger.getAccount(db, accountId);
+    await db.prepare(`UPDATE accounts SET interest_bps = ? WHERE id = ?`).bind(bps, accountId).run();
+    await ledger.audit(db, {
+      actorId: user.id,
+      action: "account.rate_changed",
+      targetType: "account",
+      targetId: accountId,
+      detail: `${before ? before.interest_bps : "?"} -> ${bps} bps`,
+    });
+    return await pageCustomer(
+      env, db, user, customerId,
+      notice(bps === 0 ? "Account now follows the global rate." : `Rate fixed at ${(bps / 100).toFixed(2)}% monthly.`, "good")
+    );
+  }
+
+  if (action === "suspend" || action === "unsuspend") {
+    if (Number(customerId) === user.id) {
+      return await pageCustomer(env, db, user, customerId, notice("You cannot suspend yourself.", "bad"));
+    }
+    const status = action === "suspend" ? "suspended" : "active";
+    await db.prepare(`UPDATE users SET status = ? WHERE id = ?`).bind(status, customerId).run();
+    await ledger.audit(db, {
+      actorId: user.id,
+      action: `user.${action}`,
+      targetType: "user",
+      targetId: customerId,
+    });
+    return await pageCustomer(env, db, user, customerId, notice(`Customer ${status}.`, "good"));
   }
 
   if (action === "role") {
@@ -459,9 +608,9 @@ export async function doCustomerAction(env, db, user, customerId, request) {
 // ---------------------------------------------------------------------------
 // manual adjustment
 // ---------------------------------------------------------------------------
-export async function pageAdjust(env, db, user, message = "") {
+export async function pageAdjust(env, db, user, message = "", prefillAccount = "") {
   const body = `<section>
-    <a class="muted small" href="/admin">← Admin</a>
+    <a class="muted small" href="/admin">Back to admin</a>
     <h1 style="margin-top:10px">Manual entry</h1>
     ${message}
     ${notice(
@@ -472,7 +621,8 @@ export async function pageAdjust(env, db, user, message = "") {
     )}
     <div class="card" style="margin-top:16px">
       <form method="POST" action="/admin/adjust">
-        <div class="field"><label>Account number</label><input name="account_id" required></div>
+        <div class="field"><label>Account number</label>
+          <input name="account_id" required value="${esc(prefillAccount)}"></div>
         <div class="field"><label>Direction</label>
           <select name="direction">
             <option value="credit">Credit - give money to the customer</option>
@@ -500,7 +650,7 @@ export async function doAdjust(env, db, user, request) {
 
   const account = await ledger.getAccount(db, accountId);
   if (!account || !["checking", "savings"].includes(account.kind)) {
-    return await pageAdjust(env, db, user, notice("That isn't a customer account.", "bad"));
+    return await pageAdjust(env, db, user, notice("That is not a customer or company account.", "bad"));
   }
 
   const amount = direction === "debit" ? -parsed.cents : parsed.cents;
@@ -669,6 +819,211 @@ export async function doSettings(env, db, user, request) {
       : "";
 
   return await pageSettings(env, db, user, notice("Saved.", "good") + extra);
+}
+
+// ---------------------------------------------------------------------------
+// businesses
+// ---------------------------------------------------------------------------
+export async function pageBusinesses(env, db, user, query = "", message = "") {
+  const list = await biz.listAllBusinesses(db, { query });
+
+  const rows = list
+    .map((b) => {
+      const active = biz.perksActive(b);
+      return `<tr>
+        <td><b>${esc(b.display_name)}</b>
+          <div class="muted small">${esc(b.firm_name)}</div></td>
+        <td>${esc(b.owner_mc || b.owner_name || "unknown")}</td>
+        <td><span class="pill">${esc(b.tier)}</span>
+          ${active ? `<span class="pill good">paid</span>` : `<span class="pill warn">unpaid</span>`}</td>
+        <td class="num">${money0(b.balance_cents || 0)}</td>
+        <td>${b.member_count}</td>
+        <td><span class="pill ${b.status === "active" ? "good" : b.status === "closed" ? "bad" : "warn"}">${esc(
+        b.status
+      )}</span></td>
+        <td style="text-align:right"><a class="btn ghost sm" href="/admin/business/${b.id}">Open</a></td>
+      </tr>`;
+    })
+    .join("");
+
+  const body = `<section>
+    <a class="muted small" href="/admin">Back to admin</a>
+    <h1 style="margin-top:10px">Companies</h1>
+    ${message}
+    <form method="GET" action="/admin/businesses" style="display:flex;gap:10px;margin:16px 0">
+      <input name="q" placeholder="Search firm or display name" value="${esc(query)}">
+      <button class="btn ghost" type="submit">Search</button>
+    </form>
+    <div class="card">
+      <table><thead><tr><th>Company</th><th>Owner</th><th>Plan</th>
+        <th style="text-align:right">Balance</th><th>People</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="7" class="muted">No companies registered.</td></tr>`}</tbody></table>
+    </div>
+  </section>`;
+  return html(layout("Companies", body, { user, active: "admin" }));
+}
+
+export async function pageBusinessDetail(env, db, user, businessId, message = "") {
+  const b = await biz.getBusiness(db, businessId);
+  if (!b) return html(layout("Not found", `<section><h1>No such company</h1></section>`, { user }), 404);
+
+  const [account, memberList, charges] = await Promise.all([
+    biz.businessAccount(db, businessId),
+    biz.members(db, businessId),
+    biz.chargeHistory(db, businessId, 12),
+  ]);
+
+  const memberRows = memberList
+    .map(
+      (m) => `<tr>
+        <td>${esc(m.mc_username || m.discord_username || "unknown")}
+          <div class="muted small">${esc(m.discord_username || "")}</div></td>
+        <td><span class="pill">${esc(m.role)}</span></td>
+        <td style="text-align:right;white-space:nowrap">
+          ${
+            m.role !== "owner"
+              ? `<form method="POST" action="/admin/business/${businessId}" style="display:inline">
+                   <input type="hidden" name="action" value="make_owner">
+                   <input type="hidden" name="user_id" value="${m.user_id}">
+                   <button class="btn ghost sm" type="submit">Make owner</button>
+                 </form>
+                 <form method="POST" action="/admin/business/${businessId}" style="display:inline">
+                   <input type="hidden" name="action" value="remove_member">
+                   <input type="hidden" name="user_id" value="${m.user_id}">
+                   <button class="btn ghost sm" type="submit">Remove</button>
+                 </form>`
+              : `<span class="muted small">owner</span>`
+          }
+        </td></tr>`
+    )
+    .join("");
+
+  const chargeRows = charges
+    .map(
+      (c) => `<tr><td>${esc(c.period)}</td><td>${esc(c.tier)}</td>
+        <td class="num">${money0(c.amount_cents)}</td>
+        <td><span class="pill ${c.status === "paid" ? "good" : "bad"}">${esc(c.status)}</span></td></tr>`
+    )
+    .join("");
+
+  const act = (action, label, extra = "") => `
+    <form method="POST" action="/admin/business/${businessId}" style="display:inline">
+      <input type="hidden" name="action" value="${action}">${extra}
+      <button class="btn ghost sm" type="submit">${label}</button>
+    </form>`;
+
+  const body = `<section>
+    <a class="muted small" href="/admin/businesses">Back to companies</a>
+    <h1 style="margin-top:10px">${esc(b.display_name)}</h1>
+    <p class="muted">${esc(b.firm_name)} · ${esc(biz.tierOf(b).name)} ·
+      ${biz.perksActive(b) ? `paid until ${shortDate(b.paid_until)}` : "not paid"} ·
+      status ${esc(b.status)}</p>
+    ${message}
+
+    <div class="card" style="margin-top:16px">
+      <div class="acct-row">
+        <div><b>Company account</b>
+          <div class="muted small">#${account ? account.id : "none"}
+            ${account && account.deposit_code ? `· code ${esc(account.deposit_code)}` : ""}</div></div>
+        <div style="text-align:right;font-weight:700">${money0(account ? account.balance_cents : 0)}</div>
+      </div>
+      ${
+        account
+          ? `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+               <a class="btn ghost sm" href="/admin/adjust?account=${account.id}">Adjust balance</a>
+               <a class="btn ghost sm" href="/app/account/${account.id}">Statement</a>
+             </div>`
+          : ""
+      }
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Plan and billing</h3>
+      <form method="POST" action="/admin/business/${businessId}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <input type="hidden" name="action" value="set_tier">
+        <select name="tier" style="width:auto">
+          ${Object.values(biz.TIERS)
+            .map((t) => `<option value="${t.key}"${b.tier === t.key ? " selected" : ""}>${esc(t.name)}</option>`)
+            .join("")}
+        </select>
+        <button class="btn ghost sm" type="submit">Change plan</button>
+      </form>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        ${act("bill_now", "Bill now")}
+        ${act("comp", "Grant 1 month free", `<input type="hidden" name="months" value="1">`)}
+      </div>
+      <p class="muted small" style="margin-top:10px">Billing takes the fee from the company
+      account into bank equity. If the account is short, it records as failed and the company
+      goes overdue. No money is created either way.</p>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>People</h3>
+      <table><tbody>${memberRows || `<tr><td class="muted">No members.</td></tr>`}</tbody></table>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Status</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${act("status", "Set active", `<input type="hidden" name="status" value="active">`)}
+        ${act("status", "Suspend", `<input type="hidden" name="status" value="suspended">`)}
+        ${act("status", "Close", `<input type="hidden" name="status" value="closed">`)}
+      </div>
+      <p class="muted small" style="margin-top:10px">Suspending stops perks and billing. It does
+      not touch the balance, and the company can still be paid.</p>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Billing history</h3>
+      <table><thead><tr><th>Month</th><th>Plan</th>
+        <th style="text-align:right">Amount</th><th>Status</th></tr></thead>
+      <tbody>${chargeRows || `<tr><td colspan="4" class="muted">Never billed.</td></tr>`}</tbody></table>
+    </div>
+  </section>`;
+  return html(layout(b.display_name, body, { user, active: "admin" }));
+}
+
+export async function doBusinessAction(env, db, user, businessId, request) {
+  const form = await request.formData();
+  const action = String(form.get("action") || "");
+
+  try {
+    const b = await biz.getBusiness(db, businessId);
+    if (!b) throw new Error("Company not found.");
+
+    if (action === "set_tier") {
+      await biz.setTier(db, b, user, String(form.get("tier")));
+      return await pageBusinessDetail(env, db, user, businessId, notice("Plan changed.", "good"));
+    }
+    if (action === "status") {
+      await biz.setBusinessStatus(db, businessId, String(form.get("status")), user);
+      return await pageBusinessDetail(env, db, user, businessId, notice("Status updated.", "good"));
+    }
+    if (action === "bill_now") {
+      const res = await biz.billNow(db, businessId, user);
+      return await pageBusinessDetail(
+        env, db, user, businessId,
+        res.charged
+          ? notice(`Charged ${money0(res.charged)}.`, "good")
+          : notice(`Not charged: ${esc(res.reason || res.skipped || "already billed")}`, "warn")
+      );
+    }
+    if (action === "comp") {
+      await biz.grantPaidUntil(db, businessId, form.get("months"), user);
+      return await pageBusinessDetail(env, db, user, businessId, notice("Time granted.", "good"));
+    }
+    if (action === "make_owner") {
+      await biz.transferOwnership(db, businessId, parseInt(form.get("user_id"), 10), user);
+      return await pageBusinessDetail(env, db, user, businessId, notice("Ownership transferred.", "good"));
+    }
+    if (action === "remove_member") {
+      await biz.adminRemoveMember(db, businessId, parseInt(form.get("user_id"), 10), user);
+      return await pageBusinessDetail(env, db, user, businessId, notice("Member removed.", "good"));
+    }
+    return redirect(`/admin/business/${businessId}`);
+  } catch (err) {
+    return await pageBusinessDetail(env, db, user, businessId, notice(esc(err.message), "bad"));
+  }
 }
 
 // ---------------------------------------------------------------------------
