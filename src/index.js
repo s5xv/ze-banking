@@ -119,6 +119,33 @@ async function statusPage(env, showSolvency = false) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Crude in-memory rate limit.
+// ---------------------------------------------------------------------------
+// Used on the customer triggered "check now" buttons. Each press spends one of
+// the bank's shared Treasury API calls, and that quota is per API key, not per
+// customer, so one impatient person clicking repeatedly would eat everyone's
+// headroom.
+//
+// This lives in the isolate's memory, so it is per worker instance rather than
+// a global guarantee. Good enough to stop one browser hammering the button.
+// If it ever needs to be authoritative, move it to KV or a Durable Object.
+const hits = new Map();
+
+function rateLimited(request, limit = 6, windowMs = 60_000) {
+  const ip = request.headers.get("cf-connecting-ip") || "anon";
+  const now = Date.now();
+  const rec = hits.get(ip);
+  if (!rec || now > rec.reset) {
+    hits.set(ip, { n: 1, reset: now + windowMs });
+    // Stop the map growing without bound in a long lived isolate.
+    if (hits.size > 5000) hits.clear();
+    return false;
+  }
+  rec.n++;
+  return rec.n > limit;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
