@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS accounts (
   label          TEXT,
   status         TEXT NOT NULL DEFAULT 'active',
   balance_cents  INTEGER NOT NULL DEFAULT 0,
+  -- Permanent per-account code the customer puts in the /pay memo. Reused
+  -- forever, so depositing is "pay this code again" rather than "come back to
+  -- the site and generate a new one each time".
+  deposit_code   TEXT UNIQUE,
   -- Only internal bookkeeping accounts (and later, credit) may go negative.
   allow_negative INTEGER NOT NULL DEFAULT 0,
   interest_bps   INTEGER NOT NULL DEFAULT 0,   -- monthly rate, basis points

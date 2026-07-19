@@ -164,16 +164,41 @@ export async function accountStatement(db, accountId, { limit = 50, before = nul
 // ---------------------------------------------------------------------------
 // accounts
 // ---------------------------------------------------------------------------
+/** 16 hex chars — long enough that codes can't be guessed or mistyped into
+ *  someone else's account, short enough to retype in a Minecraft chat box. */
+export function generateDepositCode() {
+  const b = new Uint8Array(8);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
 export async function openAccount(db, { userId, kind = "checking", label = null, interestBps = 0 }) {
   if (!["checking", "savings"].includes(kind)) throw new Error("ledger: bad account kind");
   const r = await db
     .prepare(
-      `INSERT INTO accounts (owner_user_id, kind, label, interest_bps, allow_negative)
-       VALUES (?, ?, ?, ?, 0)`
+      `INSERT INTO accounts (owner_user_id, kind, label, interest_bps, allow_negative, deposit_code)
+       VALUES (?, ?, ?, ?, 0, ?)`
     )
-    .bind(userId, kind, label || (kind === "savings" ? "Savings" : "Checking"), interestBps)
+    .bind(userId, kind, label || (kind === "savings" ? "Savings" : "Checking"), interestBps, generateDepositCode())
     .run();
   return r.meta.last_row_id;
+}
+
+export async function getAccountByDepositCode(db, code) {
+  if (!code) return null;
+  return await db.prepare(`SELECT * FROM accounts WHERE deposit_code = ?`).bind(code).first();
+}
+
+/** Where a deposit goes when we know the player but not the account. */
+export async function defaultAccountForUser(db, userId) {
+  return await db
+    .prepare(
+      `SELECT * FROM accounts
+       WHERE owner_user_id = ? AND kind = 'checking' AND status = 'active'
+       ORDER BY id LIMIT 1`
+    )
+    .bind(userId)
+    .first();
 }
 
 /**
