@@ -142,6 +142,20 @@ export default {
           if (path === "/app/transfer") return await customer.doTransfer(env, env.DB, user, request);
           if (path === "/app/verify") return await customer.doVerify(env, env.DB, user, request);
           if (path === "/app/accounts/open") return await customer.doOpenAccount(env, env.DB, user, request);
+
+          // Customer triggered deposit check. Rate limited because each press
+          // spends one of the bank's shared Treasury API calls, and the limit
+          // is per key, not per customer.
+          if (path === "/app/verify/check" || path === "/app/deposit/check") {
+            if (rateLimited(request, 6, 60_000)) {
+              return Response.redirect(
+                `${url.origin}${path === "/app/verify/check" ? "/app/verify" : "/app/deposit"}`,
+                302
+              );
+            }
+            const back = path === "/app/verify/check" ? "/app/verify" : "/app/deposit";
+            return await customer.doCheckNow(env, env.DB, user, request, `${url.origin}${back}`);
+          }
           if (path === "/app/business") return await businessui.doCreateBusiness(env, env.DB, user, request);
 
           let bm;

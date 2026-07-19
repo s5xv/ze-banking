@@ -184,7 +184,19 @@ export async function ingestFeed(env, db, { maxPages = 20 } = {}) {
 
   while (pages < maxPages) {
     const feed = await treasury.fetchFeed(env, cursor, 200);
-    if (!feed.items.length) {
+
+    // Unreadable postings are logged rather than dropped quietly, but they do
+    // not stop the rest of the batch being credited.
+    for (const t of feed.bad || []) {
+      await ledger.audit(db, {
+        action: "deposit.unreadable",
+        targetType: "posting",
+        targetId: t.postingId || "unknown",
+        detail: `amount=${t.rawAmount} memo=${String(t.memo || "").slice(0, 60)}`,
+      });
+    }
+
+    if (!feed.items.length && !(feed.bad || []).length) {
       cursor = feed.nextCursor ?? cursor;
       break;
     }

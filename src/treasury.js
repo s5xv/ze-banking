@@ -165,17 +165,23 @@ export async function fetchFeed(env, cursor = 0, limit = 200) {
     pluginSystem: t.pluginSystem || null,
   }));
 
-  // A posting we can't parse must not be silently skipped - that would be
-  // real money the books never see.
-  const bad = items.filter((t) => t.amountCents === null || !t.postingId);
-  if (bad.length) {
-    throw new TreasuryError(
-      "BAD_FEED_ITEM",
-      `Feed returned ${bad.length} unparseable posting(s); refusing to process the batch`
-    );
+  // Separate anything unparseable rather than throwing.
+  //
+  // This used to reject the whole batch, on the reasoning that money must
+  // never be silently skipped. That was wrong in practice: a single odd
+  // posting would abort ingestion permanently, the cursor would never advance,
+  // and EVERY deposit after it would stop being credited. One unreadable
+  // transaction is a problem; a bank that stops seeing deposits is a bigger
+  // one. Bad items are returned separately so the caller can log them loudly
+  // and keep going.
+  const good = [];
+  const bad = [];
+  for (const t of items) {
+    if (t.amountCents === null || !t.postingId) bad.push(t);
+    else good.push(t);
   }
 
-  return { items, nextCursor: d.nextCursor ?? cursor, hasMore: !!d.hasMore };
+  return { items: good, bad, nextCursor: d.nextCursor ?? cursor, hasMore: !!d.hasMore };
 }
 
 /** Paged history, for admin browsing rather than ingestion. */

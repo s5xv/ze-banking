@@ -9,6 +9,7 @@
 import * as ledger from "./ledger.js";
 import * as auth from "./auth.js";
 import * as withdrawals from "./withdrawals.js";
+import * as deposits from "./deposits.js";
 import { parseUserAmount } from "./money.js";
 import { esc, html, layout, money, signedMoney, shortDate, notice, redirect, payCommand } from "./views.js";
 
@@ -266,6 +267,13 @@ export async function pageDeposit(env, db, user) {
     <h1>Deposit</h1>
     <p class="muted">Money is credited automatically, usually within a minute of paying.</p>
     ${blocks || `<div class="empty">No accounts yet.</div>`}
+    <div class="card" style="margin-top:16px">
+      <form method="POST" action="/app/deposit/check">
+        <button class="btn" type="submit">I have paid, check now</button>
+      </form>
+      <p class="muted small" style="margin-top:10px;margin-bottom:0">Deposits are credited
+      automatically. This just checks straight away instead of waiting.</p>
+    </div>
     ${notice(
       `Include the code in the memo exactly. If you forget it, the payment still reaches us -
        it just has to be matched by hand, which is slower.`
@@ -460,7 +468,12 @@ export async function pageVerify(env, db, user, message = "") {
         account - it isn't a fee.</p>
         <div class="code">${esc(payCommand(env, (pending.amount_cents / 100).toFixed(2), pending.code))}</div>
         <p class="muted small" style="margin-top:12px">It must come from that account -
-        that's what proves it's yours. Refresh this page once you've paid.</p>
+        that is what proves it is yours.</p>
+        <form method="POST" action="/app/verify/check" style="margin-top:12px">
+          <button class="btn" type="submit">I have paid, check now</button>
+        </form>
+        <p class="muted small" style="margin-top:10px;margin-bottom:0">Payments are also picked
+        up automatically, so you can close this page and come back.</p>
       </div>`
     : "";
 
@@ -488,4 +501,25 @@ export async function doVerify(env, db, user, request) {
   } catch (err) {
     return await pageVerify(env, db, user, notice(esc(err.message), "bad"));
   }
+}
+
+/**
+ * "I have paid, check now."
+ *
+ * Deposits arrive automatically, but automatically means within 5 minutes if
+ * the webhook is not registered, and even with a webhook there is a moment
+ * where the customer is staring at a page wondering whether it worked. This
+ * lets them pull the Treasury themselves.
+ *
+ * Rate limited by the caller, because every press costs a Treasury API call
+ * and those are capped per minute for the whole bank, not per user.
+ */
+export async function doCheckNow(env, db, user, request, backTo = "/app") {
+  try {
+    await deposits.ingestFeed(env, db, { maxPages: 2 });
+  } catch {
+    // A failed check is not worth an error page. Whatever they paid is still
+    // in the Treasury and the cron will find it.
+  }
+  return redirect(backTo);
 }

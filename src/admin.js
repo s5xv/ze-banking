@@ -298,6 +298,17 @@ export async function pageDeposits(env, db, user, message = "") {
        Find the account number on the customer's page, then assign it here.
        Assigning moves it out of suspense - it does not create money.`
     )}
+
+    <div class="card" style="margin-top:16px">
+      <h3>Check for deposits now</h3>
+      <p class="muted small" style="margin-top:0">Deposits are picked up automatically every
+      5 minutes. This runs that check immediately, which is useful when someone has just paid
+      and is waiting, or when testing verification.</p>
+      <form method="POST" action="/admin/deposits">
+        <input type="hidden" name="action" value="ingest">
+        <button class="btn" type="submit">Check the Treasury now</button>
+      </form>
+    </div>
     <div class="card" style="margin-top:16px">
       <table><thead><tr><th>When</th><th style="text-align:right">Amount</th>
       <th>Memo / payer</th><th>Assign to</th></tr></thead><tbody>${table}</tbody></table>
@@ -308,6 +319,30 @@ export async function pageDeposits(env, db, user, message = "") {
 
 export async function doAssignDeposit(env, db, user, request) {
   const form = await request.formData();
+
+  // Manual ingestion. Deposits normally arrive on a 5 minute cron, which makes
+  // testing painful and makes a customer who just paid think nothing happened.
+  if (String(form.get("action")) === "ingest") {
+    try {
+      const res = await deposits.ingestFeed(env, db);
+      await ledger.audit(db, {
+        actorId: user.id,
+        action: "deposit.manual_ingest",
+        detail: JSON.stringify(res),
+      });
+      return await pageDeposits(
+        env, db, user,
+        notice(
+          `Checked the Treasury. Credited ${res.credited}, already seen ${res.skipped},
+           unmatched ${res.unmatched}. Cursor now ${res.cursor}.`,
+          "good"
+        )
+      );
+    } catch (err) {
+      return await pageDeposits(env, db, user, notice(`Could not read the Treasury: ${esc(err.message)}`, "bad"));
+    }
+  }
+
   const depositId = parseInt(form.get("deposit_id"), 10);
   const accountId = parseInt(form.get("account_id"), 10);
 
