@@ -57,7 +57,7 @@ function page(title, body) {
 // ---------------------------------------------------------------------------
 // Health / status — proves config is right before any money is at risk.
 // ---------------------------------------------------------------------------
-async function statusPage(env) {
+async function statusPage(env, showSolvency = false) {
   const checks = [];
   const add = (name, ok, detail) => checks.push({ name, ok, detail });
 
@@ -78,8 +78,8 @@ async function statusPage(env) {
     add("Schema", false, e.message);
   }
 
-  let solvencyBlock = `<p class="muted">Treasury not reachable yet — configure secrets to see live figures.</p>`;
-  if (env.DC_API_TOKEN && env.POOL_ACCOUNT_ID && schemaOk) {
+  let solvencyBlock = `<p class="muted">Sign in as staff to see live figures.</p>`;
+  if (showSolvency && env.DC_API_TOKEN && env.POOL_ACCOUNT_ID && schemaOk) {
     try {
       const poolCents = await treasury.poolBalanceCents(env);
       const s = await ledger.solvency(env.DB, poolCents);
@@ -191,7 +191,18 @@ export default {
         return html(page("Not found", `<h1>404</h1>`), 404);
       }
 
-      if (path === "/" || path === "/status") return await statusPage(env);
+      // Public homepage. Session is optional — it only changes the call to action.
+      if (path === "/") {
+        const user = await auth.getSession(env, env.DB, request).catch(() => null);
+        return await customer.pageLanding(env, env.DB, user);
+      }
+
+      // Setup/diagnostics. Config state is fine to show while nothing is
+      // configured, but solvency figures are staff-only.
+      if (path === "/status") {
+        const user = await auth.getSession(env, env.DB, request).catch(() => null);
+        return await statusPage(env, auth.isStaff(user));
+      }
 
       if (path === "/health") return json({ ok: true, service: "ze-bank" });
 

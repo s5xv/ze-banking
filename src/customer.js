@@ -15,6 +15,98 @@ import { esc, html, layout, money, signedMoney, shortDate, notice, redirect } fr
 const PAY_TO = (env) => env.BANK_FIRM_NAME || "ZEBank";
 
 // ---------------------------------------------------------------------------
+// public landing page
+// ---------------------------------------------------------------------------
+export async function pageLanding(env, db, user) {
+  // Rates come from settings, so changing them in admin updates the marketing
+  // copy too — no redeploy, and no chance of advertising a rate we don't pay.
+  let savingsPct = "2.00";
+  let customers = 0;
+  try {
+    const bps = await ledger.getSetting(db, "savings_rate_bps", "200");
+    savingsPct = (Number(bps) / 100).toFixed(2);
+    const r = await db
+      .prepare(`SELECT COUNT(*) AS n FROM users WHERE mc_verified_at IS NOT NULL`)
+      .first();
+    customers = r ? r.n : 0;
+  } catch {
+    // Database not migrated yet — the page still renders.
+  }
+
+  const cta = user
+    ? `<a class="btn" href="/app">Go to your accounts</a>`
+    : `<a class="btn" href="/auth/login">Open an account</a>`;
+
+  const body = `
+  <section style="padding:64px 0 40px">
+    <h1 style="font-size:40px;letter-spacing:-1px;max-width:16ch">Banking for DemocracyCraft.</h1>
+    <p class="muted" style="font-size:17px;max-width:52ch;margin-top:10px">
+      Hold your money somewhere safe, send it instantly to anyone, and earn
+      ${esc(savingsPct)}% a month on savings. Deposits and withdrawals settle in game.
+    </p>
+    <div style="display:flex;gap:12px;margin-top:24px;flex-wrap:wrap">
+      ${cta}
+      <a class="btn ghost" href="#how">How it works</a>
+    </div>
+    ${customers ? `<p class="muted small" style="margin-top:18px">${customers} verified customer${customers === 1 ? "" : "s"}.</p>` : ""}
+  </section>
+
+  <section style="padding-top:0">
+    <div class="cards c3">
+      <div class="card">
+        <h3>Instant transfers</h3>
+        <p class="muted small">Send money to any other customer immediately. It never leaves
+        the bank, so there's no delay and no fee.</p>
+      </div>
+      <div class="card">
+        <h3>${esc(savingsPct)}% monthly savings</h3>
+        <p class="muted small">Interest is paid into your savings account at the start of
+        every month. Nothing to claim.</p>
+      </div>
+      <div class="card">
+        <h3>Deposit any time</h3>
+        <p class="muted small">You get a permanent payment code. Pay it in game and your
+        balance updates within a minute.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <h2>How it works</h2>
+    <div class="card">
+      <div class="acct-row">
+        <div><b>1. Sign in with Discord</b>
+          <div class="muted small">Your account is created automatically.</div></div>
+      </div>
+      <div class="acct-row">
+        <div><b>2. Verify your Minecraft account</b>
+          <div class="muted small">Send a small payment with a code we give you. It proves
+          the account is yours, and the money is credited to your balance — it isn't a fee.</div></div>
+      </div>
+      <div class="acct-row">
+        <div><b>3. Deposit, spend, save</b>
+          <div class="muted small">Pay your deposit code any time to top up. Withdraw back to
+          your Minecraft account whenever you want.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where your money actually is</h2>
+    <div class="card">
+      <p class="muted small" style="margin-top:0">
+        Deposits are held in the bank's Treasury account. Every balance is recorded in a
+        double-entry ledger, and the books are automatically checked against the Treasury
+        every hour — if they ever disagree, withdrawals pause until a human has looked at it.
+        We'd rather be briefly unavailable than quietly wrong.
+      </p>
+    </div>
+  </section>`;
+
+  return html(layout("Z&E Bank", body, { user }));
+}
+
+// ---------------------------------------------------------------------------
 // overview
 // ---------------------------------------------------------------------------
 export async function pageHome(env, db, user) {
