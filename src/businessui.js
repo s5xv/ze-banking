@@ -6,6 +6,7 @@
 
 import * as ledger from "./ledger.js";
 import * as biz from "./business.js";
+import * as payrollLib from "./payroll.js";
 import { parseUserAmount } from "./money.js";
 import { esc, html, layout, money, signedMoney, shortDate, notice, redirect, payCommand } from "./views.js";
 
@@ -138,11 +139,28 @@ export async function pageBusiness(env, db, user, businessId, message = "") {
     );
   }
 
-  const [account, memberList, charges] = await Promise.all([
+  const [account, memberList, charges, salaries, payrollTotal] = await Promise.all([
     biz.businessAccount(db, businessId),
     biz.members(db, businessId),
     biz.chargeHistory(db, businessId, 6),
+    payrollLib.listSalaries(db, businessId),
+    payrollLib.payrollTotal(db, businessId),
   ]);
+
+  const salaryRows = salaries
+    .map(
+      (s) => `<tr>
+        <td>${esc(s.mc_username || s.discord_username || "unknown")}</td>
+        <td class="num">${money(s.amount_cents)}</td>
+        <td style="text-align:right">
+          <form method="POST" action="/app/business/${businessId}/payroll" style="display:inline">
+            <input type="hidden" name="action" value="remove">
+            <input type="hidden" name="user_id" value="${s.user_id}">
+            <button class="btn ghost sm" type="submit">Remove</button>
+          </form>
+        </td></tr>`
+    )
+    .join("");
 
   const tier = biz.tierOf(b);
   const effective = biz.effectiveTier(b);
@@ -241,6 +259,50 @@ export async function pageBusiness(env, db, user, businessId, message = "") {
               <div class="field"><label>Reference</label><input name="memo" maxlength="80"></div>
               <button class="btn" type="submit">Send</button>
             </form>
+          </div>`
+        : ""
+    }
+
+    ${
+      isOwner
+        ? `<div class="card" style="margin-top:16px">
+            <h3>Payroll</h3>
+            <p class="muted small" style="margin-top:0">Wages are paid into each person's Z&amp;E
+            account, which is why they are instant and never fail halfway.
+            Total each month: <b>${money(payrollTotal)}</b>.</p>
+            ${
+              salaries.length
+                ? `<table><thead><tr><th>Person</th><th style="text-align:right">Monthly</th><th></th></tr></thead>
+                   <tbody>${salaryRows}</tbody></table>`
+                : `<p class="muted small">Nobody is on payroll yet.</p>`
+            }
+            <form method="POST" action="/app/business/${businessId}/payroll" style="margin-top:14px">
+              <input type="hidden" name="action" value="set">
+              <div class="row">
+                <div class="field"><label>Person</label>
+                  <select name="user_id">
+                    ${memberList
+                      .map(
+                        (m) =>
+                          `<option value="${m.user_id}">${esc(
+                            m.mc_username || m.discord_username || "unknown"
+                          )}</option>`
+                      )
+                      .join("")}
+                  </select></div>
+                <div class="field"><label>Monthly wage</label>
+                  <input name="amount" placeholder="0.00" inputmode="decimal"></div>
+              </div>
+              <button class="btn ghost sm" type="submit">Set wage</button>
+            </form>
+            <form method="POST" action="/app/business/${businessId}/payroll" style="margin-top:14px">
+              <input type="hidden" name="action" value="run">
+              <button class="btn" type="submit">Run payroll now</button>
+            </form>
+            <p class="muted small" style="margin-top:10px;margin-bottom:0">Payroll also runs
+            automatically at the start of each month. Running it twice in one month pays
+            nobody twice. If the account cannot cover everyone, nobody is paid and we tell you
+            how short you are.</p>
           </div>`
         : ""
     }
@@ -441,6 +503,67 @@ export async function doBusinessPay(env, db, user, businessId, request) {
       env, db, user, businessId,
       notice(`Sent ${money(parsed.cents)} to ${esc(target.mc_username)}.`, "good")
     );
+  } catch (err) {
+    return await pageBusiness(env, db, user, businessId, notice(esc(err.message), "bad"));
+  }
+}
+
+export async function doPayroll(env, db, user, businessId, request) {
+  const form = await request.formData();
+  const action = String(form.get("action") || "");
+
+  try {
+    const { b } = await requireRole(db, user, businessId, true);
+
+    if (action === "set") {
+      const parsed = parseUserAmount(form.get("amount"), { min: 1 });
+      if (parsed.error) throw new Error(parsed.error);
+      await payrollLib.setSalary(db, b, user, {
+        userId: parseInt(form.get("user_id"), 10),
+        amountCents: parsed.cents,
+      });
+      return await pageBusiness(env, db, user, businessId, notice("Wage set.", "good"));
+    }
+
+    if (action === "remove") {
+      await payrollLib.removeSalary(db, b, user, parseInt(form.get("user_id"), 10));
+      return await pageBusiness(env, db, user, businessId, notice("Removed from payroll.", "good"));
+    }
+
+    if (action === "run") {
+      const res = await payrollLib.runPayroll(db, b, { actor: user });
+
+      if (res.error) {
+        return await pageBusiness(env, db, user, businessId, notice(esc(res.error), "bad"));
+      }
+      if (res.shortfall) {
+        return await pageBusiness(
+          env, db, user, businessId,
+          notice(
+            `<b>Nobody was paid.</b> Payroll needs ${money(res.needed)} and the account holds
+             ${money(res.available)}. Add ${money(res.shortfall)} and run it again. We do not
+             pay some people and not others.`,
+            "bad"
+          )
+        );
+      }
+      if (res.alreadyDone) {
+        return await pageBusiness(
+          env, db, user, businessId,
+          notice("Everyone has already been paid for this month.", "warn")
+        );
+      }
+      return await pageBusiness(
+        env, db, user, businessId,
+        notice(
+          `Paid ${res.paid} ${res.paid === 1 ? "person" : "people"}, ${money(res.totalCents)} total.` +
+            (res.skipped ? ` ${res.skipped} could not be paid.` : ""),
+          "good"
+        )
+      );
+    }
+
+    return redirect(`/app/business/${businessId}`);
   } catch (err) {
     return await pageBusiness(env, db, user, businessId, notice(esc(err.message), "bad"));
   }

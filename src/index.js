@@ -18,6 +18,7 @@ import * as business from "./business.js";
 import * as businessui from "./businessui.js";
 import * as products from "./products.js";
 import * as productsui from "./productsui.js";
+import * as payroll from "./payroll.js";
 import { formatCents } from "./money.js";
 
 const json = (obj, status = 200) =>
@@ -189,6 +190,7 @@ export default {
           if (path === "/app/savings") return await productsui.doOpenCd(env, env.DB, user, request);
           if (path === "/app/scheduled") return await productsui.doScheduled(env, env.DB, user, request);
           if (path === "/app/goal") return await productsui.doSetGoal(env, env.DB, user, request);
+          if (path === "/app/alerts") return await customer.doSetAlert(env, env.DB, user, request);
 
           let bm;
           if ((bm = path.match(/^\/app\/business\/(\d+)\/members$/)))
@@ -197,6 +199,8 @@ export default {
             return await businessui.doSetTier(env, env.DB, user, parseInt(bm[1], 10), request);
           if ((bm = path.match(/^\/app\/business\/(\d+)\/pay$/)))
             return await businessui.doBusinessPay(env, env.DB, user, parseInt(bm[1], 10), request);
+          if ((bm = path.match(/^\/app\/business\/(\d+)\/payroll$/)))
+            return await businessui.doPayroll(env, env.DB, user, parseInt(bm[1], 10), request);
           if ((bm = path.match(/^\/app\/business\/(\d+)\/logo$/)))
             return await businessui.doLogo(env, env.DB, user, parseInt(bm[1], 10), request);
           if ((bm = path.match(/^\/app\/business\/(\d+)\/profile$/)))
@@ -404,6 +408,16 @@ export default {
             if (res && (res.charged || res.failed)) console.log("tier billing:", JSON.stringify(res));
           } catch (err) {
             console.error("tier billing failed:", err.message);
+          }
+
+          // Wages. Runs after tier billing so a company's own bill is taken
+          // before it pays staff, which keeps the bank's fee from bouncing
+          // because payroll emptied the account first.
+          try {
+            const res = await payroll.runAllPayroll(env.DB);
+            if (res && res.people) console.log("payroll:", JSON.stringify(res));
+          } catch (err) {
+            console.error("payroll failed:", err.message);
           }
         }
       })()

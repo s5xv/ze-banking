@@ -113,6 +113,26 @@ export async function pageHome(env, db, user) {
   const accounts = await ledger.listUserAccounts(db, user.id);
   const total = accounts.reduce((n, a) => n + a.balance_cents, 0);
 
+  // Spending alerts. Derived at render time from thresholds on the account
+  // rather than written by a background job, so they can never be stale or
+  // describe a balance that has since changed.
+  const lowBalance = accounts.filter(
+    (a) => a.alert_below_cents && a.balance_cents < a.alert_below_cents
+  );
+  const alertBanner = lowBalance.length
+    ? notice(
+        `<b>Low balance.</b> ` +
+          lowBalance
+            .map(
+              (a) =>
+                `${esc(a.label || a.kind)} is at ${money(a.balance_cents)}, below your
+                 ${money(a.alert_below_cents)} alert.`
+            )
+            .join(" "),
+        "warn"
+      )
+    : "";
+
   const verifyBanner = auth.isVerified(user)
     ? ""
     : notice(
@@ -164,7 +184,7 @@ export async function pageHome(env, db, user) {
     <p class="muted">Signed in as ${esc(user.discord_username)}${
     user.mc_username ? ` · ${esc(user.mc_username)}` : ""
   }</p>
-    ${verifyBanner}
+    ${alertBanner}${verifyBanner}
     <div class="card" style="margin-top:18px">
       <div class="muted small">Total balance</div>
       <div class="balance">${money(total)}</div>
@@ -285,6 +305,22 @@ export async function pageAccount(env, db, user, accountId) {
         : `<p class="muted small">Deposit code <code>${esc(account.deposit_code || "none")}</code></p>`
     }
     ${goalBlock}
+
+    <div class="card" style="margin-top:16px">
+      <h3>Alerts</h3>
+      <p class="muted small" style="margin-top:0">Warn me when this account drops below a set
+      amount. Shown on your accounts page.</p>
+      <form method="POST" action="/app/alerts" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <input type="hidden" name="account_id" value="${account.id}">
+        <div class="field" style="margin-bottom:0;flex:1;min-width:180px">
+          <label>Alert below</label>
+          <input name="below" placeholder="leave blank for none" inputmode="decimal"
+            value="${account.alert_below_cents ? (account.alert_below_cents / 100).toFixed(2) : ""}">
+        </div>
+        <button class="btn ghost sm" type="submit">Save</button>
+      </form>
+    </div>
+
     <div class="card" style="margin-top:18px">
       <table><thead><tr><th>When</th><th>Detail</th><th style="text-align:right">Amount</th></tr></thead>
       <tbody>${rows}</tbody></table>
@@ -546,6 +582,29 @@ export async function doVerify(env, db, user, request) {
   } catch (err) {
     return await pageVerify(env, db, user, notice(esc(err.message), "bad"));
   }
+}
+
+/** Set or clear a low balance alert. Display only, no money involved. */
+export async function doSetAlert(env, db, user, request) {
+  const form = await request.formData();
+  const accountId = parseInt(form.get("account_id"), 10);
+  const raw = String(form.get("below") || "").trim();
+
+  const account = await ledger.getAccount(db, accountId);
+  if (!account || account.owner_user_id !== user.id) return redirect("/app");
+
+  let cents = null;
+  if (raw) {
+    const parsed = parseUserAmount(raw, { min: 1 });
+    if (!parsed.error) cents = parsed.cents;
+  }
+
+  await db
+    .prepare(`UPDATE accounts SET alert_below_cents = ? WHERE id = ?`)
+    .bind(cents, accountId)
+    .run();
+
+  return redirect(`/app/account/${accountId}`);
 }
 
 /**
