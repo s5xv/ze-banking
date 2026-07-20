@@ -32,6 +32,7 @@
 
 import * as ledger from "./ledger.js";
 import * as treasury from "./treasury.js";
+import * as approvals from "./approvals.js";
 import { assertCents } from "./money.js";
 
 export class WithdrawalError extends Error {
@@ -90,6 +91,35 @@ export async function requestWithdrawal(env, db, { accountId, userId, amountCent
     });
     throw new WithdrawalError("ILLIQUID", "The bank can't cover that right now. Staff have been notified.");
   }
+
+  // --- approval gate ------------------------------------------------------
+  // Savings withdrawals need staff sign off, and joint accounts need
+  // signatures above their threshold. Nothing is debited here: the request is
+  // recorded and the balance is checked again when it executes. See
+  // approvals.js for why not reserving the money is the safer choice.
+  const gate = await approvals.approvalRequired(db, account, amountCents);
+  if (gate) {
+    const pendingId = await approvals.requestApproval(db, {
+      fromAccount: account,
+      kind: "withdrawal",
+      amountCents,
+      memo: memo || `Withdrawal to ${user.mc_username}`,
+      user,
+      needed: gate.needed,
+    });
+    return { status: "awaiting_approval", pendingId, reason: gate.reason, needed: gate.needed };
+  }
+
+  return await createAndPay(env, db, { account, user, amountCents, memo });
+}
+
+/**
+ * The actual debit and payout. Split out so an approved request can run the
+ * identical path once it has been signed off.
+ */
+async function createAndPay(env, db, { account, user, amountCents, memo, pendingId = null }) {
+  const accountId = account.id;
+  const userId = user.id;
 
   // --- 1. record the intent (no money moved) ------------------------------
   const idempotencyKey = crypto.randomUUID();
@@ -232,6 +262,72 @@ export async function reviewStuck(env, db, { limit = 20 } = {}) {
     else out.stillUnknown++;
   }
   return out;
+}
+
+/**
+ * Run a withdrawal that has been approved.
+ *
+ * Called by the staff or signer UI once the signature threshold is met.
+ * Deliberately NOT called from inside approvals.js: that module has no access
+ * to the Treasury and should not, so the module that owns the outbound money
+ * path also owns this step.
+ *
+ * The balance is not assumed to be intact. It is re-checked here, and the
+ * ledger's overdraft CHECK is the final word, so a request approved after the
+ * money was spent fails cleanly.
+ */
+export async function performApproved(env, db, pendingId, staffUser) {
+  const pending = await db
+    .prepare(`SELECT * FROM pending_transfers WHERE id = ?`)
+    .bind(pendingId)
+    .first();
+  if (!pending) throw new WithdrawalError("NOT_FOUND", "That request no longer exists.");
+  if (pending.kind !== "withdrawal") throw new WithdrawalError("WRONG_KIND", "That is not a withdrawal.");
+  if (pending.withdrawal_id) {
+    return { withdrawalId: pending.withdrawal_id, status: "already_done" };
+  }
+
+  const account = await ledger.getAccount(db, pending.from_account_id);
+  ledger.assertWithdrawable(account);
+
+  const owner = await db.prepare(`SELECT * FROM users WHERE id = ?`).bind(account.owner_user_id).first();
+  if (!owner || !owner.mc_verified_at || !owner.mc_uuid) {
+    throw new WithdrawalError("UNVERIFIED", "The account holder is no longer verified.");
+  }
+
+  if (account.balance_cents < pending.amount_cents) {
+    await db
+      .prepare(
+        `UPDATE pending_transfers
+            SET status = 'rejected', reject_reason = 'Insufficient funds at approval time'
+          WHERE id = ?`
+      )
+      .bind(pendingId)
+      .run();
+    throw new WithdrawalError(
+      "INSUFFICIENT_FUNDS",
+      "The account no longer holds enough for this. The request has been cancelled."
+    );
+  }
+
+  const result = await createAndPay(env, db, {
+    account,
+    user: owner,
+    amountCents: pending.amount_cents,
+    memo: pending.memo,
+    pendingId,
+  });
+
+  await db
+    .prepare(
+      `UPDATE pending_transfers
+          SET status = 'executed', withdrawal_id = ?, decided_by = ?, decided_at = datetime('now')
+        WHERE id = ?`
+    )
+    .bind(result.withdrawalId, staffUser ? staffUser.id : null, pendingId)
+    .run();
+
+  return result;
 }
 
 export async function listForAccount(db, accountId, limit = 25) {

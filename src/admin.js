@@ -178,6 +178,7 @@ export async function pageDashboard(env, db, user, message = "") {
     <div class="card" style="margin-top:16px">
       <h3>Tools</h3>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+        <a class="btn ghost sm" href="/admin/approvals">Approvals</a>
         <a class="btn ghost sm" href="/admin/customers">Customers</a>
         <a class="btn ghost sm" href="/admin/businesses">Companies</a>
         <a class="btn ghost sm" href="/admin/adjust">Manual entry</a>

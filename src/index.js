@@ -19,6 +19,8 @@ import * as businessui from "./businessui.js";
 import * as products from "./products.js";
 import * as productsui from "./productsui.js";
 import * as payroll from "./payroll.js";
+import * as approvalsui from "./approvalsui.js";
+import * as approvals from "./approvals.js";
 import { formatCents } from "./money.js";
 
 const json = (obj, status = 200) =>
@@ -191,6 +193,8 @@ export default {
           if (path === "/app/scheduled") return await productsui.doScheduled(env, env.DB, user, request);
           if (path === "/app/goal") return await productsui.doSetGoal(env, env.DB, user, request);
           if (path === "/app/alerts") return await customer.doSetAlert(env, env.DB, user, request);
+          if (path === "/app/approvals") return await approvalsui.doApproval(env, env.DB, user, request);
+          if (path === "/app/joint") return await approvalsui.doJoint(env, env.DB, user, request);
 
           let bm;
           if ((bm = path.match(/^\/app\/business\/(\d+)\/members$/)))
@@ -218,6 +222,7 @@ export default {
         if (path === "/app/business") return await businessui.pageBusinessList(env, env.DB, user);
         if (path === "/app/savings") return await productsui.pageSavings(env, env.DB, user);
         if (path === "/app/scheduled") return await productsui.pageScheduled(env, env.DB, user);
+        if (path === "/app/approvals") return await approvalsui.pageApprovals(env, env.DB, user);
 
         let m;
         if ((m = path.match(/^\/app\/business\/(\d+)$/)))
@@ -248,6 +253,7 @@ export default {
           if (path === "/admin/adjust") return await admin.doAdjust(env, db, user, request);
           if (path === "/admin/settings") return await admin.doSettings(env, db, user, request);
           if (path === "/admin/webhooks") return await admin.doWebhookAction(env, db, user, request);
+          if (path === "/admin/approvals") return await approvalsui.doStaffApproval(env, db, user, request);
 
           let am;
           if ((am = path.match(/^\/admin\/customer\/(\d+)$/)))
@@ -270,6 +276,7 @@ export default {
         if (path === "/admin/reconciliation") return await admin.pageReconciliation(env, db, user);
         if (path === "/admin/settings") return await admin.pageSettings(env, db, user);
         if (path === "/admin/webhooks") return await admin.pageWebhooks(env, db, user);
+        if (path === "/admin/approvals") return await approvalsui.pageStaffApprovals(env, db, user);
         if (path === "/admin/audit") return await admin.pageAudit(env, db, user);
 
         let ap;
@@ -360,6 +367,14 @@ export default {
           if (ingested.credited) console.log("deposits credited:", JSON.stringify(ingested));
         } catch (err) {
           console.error("deposit ingest failed:", err.message);
+        }
+
+        // Clear out approval requests nobody acted on, so a stale request
+        // cannot be signed weeks later against a balance that has moved on.
+        try {
+          await approvals.expireOld(env.DB);
+        } catch (err) {
+          console.error("approval expiry failed:", err.message);
         }
 
         // Scheduled payments. Internal transfers only, so no Treasury calls

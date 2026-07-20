@@ -11,6 +11,7 @@ import * as auth from "./auth.js";
 import * as withdrawals from "./withdrawals.js";
 import * as deposits from "./deposits.js";
 import * as products from "./products.js";
+import * as approvalsui from "./approvalsui.js";
 import { parseUserAmount } from "./money.js";
 import { esc, html, layout, money, signedMoney, shortDate, notice, redirect, payCommand } from "./views.js";
 
@@ -305,6 +306,7 @@ export async function pageAccount(env, db, user, accountId) {
         : `<p class="muted small">Deposit code <code>${esc(account.deposit_code || "none")}</code></p>`
     }
     ${goalBlock}
+    ${await approvalsui.jointBlock(db, account, user)}
 
     <div class="card" style="margin-top:16px">
       <h3>Alerts</h3>
