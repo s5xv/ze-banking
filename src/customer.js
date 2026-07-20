@@ -10,6 +10,7 @@ import * as ledger from "./ledger.js";
 import * as auth from "./auth.js";
 import * as withdrawals from "./withdrawals.js";
 import * as deposits from "./deposits.js";
+import * as products from "./products.js";
 import { parseUserAmount } from "./money.js";
 import { esc, html, layout, money, signedMoney, shortDate, notice, redirect, payCommand } from "./views.js";
 
@@ -235,11 +236,55 @@ export async function pageAccount(env, db, user, accountId) {
         .join("")
     : `<tr><td colspan="3" class="muted">No transactions yet.</td></tr>`;
 
+  // Savings goal. Display only, so there is nothing here that can move money.
+  const progress = products.goalProgress(account);
+  const goalBlock =
+    account.kind === "savings" && !account.cd_matures_at
+      ? `<div class="card" style="margin-top:16px">
+          <h3>Savings goal</h3>
+          ${
+            progress
+              ? `<div class="muted small">${esc(account.goal_label || "Goal")} ·
+                   ${money(account.balance_cents)} of ${money(account.goal_cents)}</div>
+                 <div style="background:var(--panel2);border-radius:999px;height:10px;margin-top:10px;overflow:hidden">
+                   <div style="width:${progress.pct}%;height:100%;background:var(${
+                  progress.reached ? "--good" : "--accent"
+                })"></div>
+                 </div>
+                 <div class="muted small" style="margin-top:8px">${progress.pct}%${
+                  progress.reached ? ", reached" : ""
+                }</div>`
+              : `<p class="muted small">No goal set.</p>`
+          }
+          <form method="POST" action="/app/goal" style="margin-top:14px">
+            <input type="hidden" name="account_id" value="${account.id}">
+            <div class="row">
+              <div class="field"><label>Target amount</label>
+                <input name="amount" placeholder="leave blank to clear" inputmode="decimal"
+                  value="${account.goal_cents ? (account.goal_cents / 100).toFixed(2) : ""}"></div>
+              <div class="field"><label>What for</label>
+                <input name="label" maxlength="60" value="${esc(account.goal_label || "")}"></div>
+            </div>
+            <button class="btn ghost sm" type="submit">Save goal</button>
+          </form>
+        </div>`
+      : "";
+
   const body = `<section>
-    <a class="muted small" href="/app">← Accounts</a>
+    <a class="muted small" href="/app">Back to accounts</a>
     <h1 style="margin-top:10px">${esc(account.label || account.kind)}</h1>
     <div class="balance">${money(account.balance_cents)}</div>
-    <p class="muted small">Deposit code <code>${esc(account.deposit_code || "-")}</code></p>
+    ${
+      account.cd_matures_at
+        ? `<p class="muted small">Fixed deposit at ${(account.interest_bps / 100).toFixed(2)}% monthly ·
+             ${
+               products.cdMatured(account)
+                 ? "matured, available to move"
+                 : `locked until ${shortDate(account.cd_matures_at).slice(0, 10)}`
+             }</p>`
+        : `<p class="muted small">Deposit code <code>${esc(account.deposit_code || "none")}</code></p>`
+    }
+    ${goalBlock}
     <div class="card" style="margin-top:18px">
       <table><thead><tr><th>When</th><th>Detail</th><th style="text-align:right">Amount</th></tr></thead>
       <tbody>${rows}</tbody></table>

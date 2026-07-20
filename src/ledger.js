@@ -232,6 +232,27 @@ export function assertUsable(account) {
   return account;
 }
 
+/**
+ * Money leaving an account has a stricter test than money arriving.
+ *
+ * A fixed deposit accepts its opening transfer, then locks. Enforced here
+ * rather than as a database constraint because the constraint cannot know the
+ * direction of a posting: a CD must still be able to receive its own interest.
+ */
+export function assertWithdrawable(account) {
+  assertUsable(account);
+  if (account.cd_matures_at) {
+    const matures = new Date(String(account.cd_matures_at).replace(" ", "T") + "Z");
+    if (matures > new Date()) {
+      throw new LedgerError(
+        "LOCKED",
+        `This fixed deposit is locked until ${String(account.cd_matures_at).slice(0, 10)}.`
+      );
+    }
+  }
+  return account;
+}
+
 export async function setAccountStatus(db, accountId, status) {
   if (!["active", "frozen", "closed"].includes(status)) throw new Error("ledger: bad status");
   await db.prepare(`UPDATE accounts SET status = ? WHERE id = ?`).bind(status, accountId).run();
@@ -248,7 +269,7 @@ export async function transferInternal(db, { fromAccountId, toAccountId, amountC
   if (fromAccountId === toAccountId) throw new LedgerError("SAME_ACCOUNT", "Pick a different account.");
 
   const [from, to] = await Promise.all([getAccount(db, fromAccountId), getAccount(db, toAccountId)]);
-  assertUsable(from);
+  assertWithdrawable(from); // blocks a locked fixed deposit being drained
   assertUsable(to);
 
   // Advisory pre-check for a friendly error. The DB CHECK is the real guard -

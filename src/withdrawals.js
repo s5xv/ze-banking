@@ -55,7 +55,7 @@ export async function requestWithdrawal(env, db, { accountId, userId, amountCent
   }
 
   const account = await ledger.getAccount(db, accountId);
-  ledger.assertUsable(account);
+  ledger.assertWithdrawable(account); // also refuses a locked fixed deposit
   if (account.owner_user_id !== userId) {
     throw new WithdrawalError("NOT_YOURS", "That isn't your account.");
   }

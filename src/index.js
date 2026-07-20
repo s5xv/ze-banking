@@ -16,6 +16,8 @@ import * as admin from "./admin.js";
 import * as interest from "./interest.js";
 import * as business from "./business.js";
 import * as businessui from "./businessui.js";
+import * as products from "./products.js";
+import * as productsui from "./productsui.js";
 import { formatCents } from "./money.js";
 
 const json = (obj, status = 200) =>
@@ -184,6 +186,9 @@ export default {
             return await customer.doCheckNow(env, env.DB, user, request, `${url.origin}${back}`);
           }
           if (path === "/app/business") return await businessui.doCreateBusiness(env, env.DB, user, request);
+          if (path === "/app/savings") return await productsui.doOpenCd(env, env.DB, user, request);
+          if (path === "/app/scheduled") return await productsui.doScheduled(env, env.DB, user, request);
+          if (path === "/app/goal") return await productsui.doSetGoal(env, env.DB, user, request);
 
           let bm;
           if ((bm = path.match(/^\/app\/business\/(\d+)\/members$/)))
@@ -207,6 +212,8 @@ export default {
         if (path === "/app/verify") return await customer.pageVerify(env, env.DB, user);
 
         if (path === "/app/business") return await businessui.pageBusinessList(env, env.DB, user);
+        if (path === "/app/savings") return await productsui.pageSavings(env, env.DB, user);
+        if (path === "/app/scheduled") return await productsui.pageScheduled(env, env.DB, user);
 
         let m;
         if ((m = path.match(/^\/app\/business\/(\d+)$/)))
@@ -349,6 +356,16 @@ export default {
           if (ingested.credited) console.log("deposits credited:", JSON.stringify(ingested));
         } catch (err) {
           console.error("deposit ingest failed:", err.message);
+        }
+
+        // Scheduled payments. Internal transfers only, so no Treasury calls
+        // and no rate limit concerns. Keyed per schedule per due date, so
+        // running this every 5 minutes cannot pay twice.
+        try {
+          const sched = await products.runDueSchedules(env.DB);
+          if (sched.paid || sched.failed) console.log("scheduled payments:", JSON.stringify(sched));
+        } catch (err) {
+          console.error("scheduled payments failed:", err.message);
         }
 
         try {
