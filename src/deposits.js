@@ -22,6 +22,7 @@
 import * as ledger from "./ledger.js";
 import * as treasury from "./treasury.js";
 import { tryCompleteVerification } from "./auth.js";
+import * as bizhooks from "./bizhooks.js";
 
 // Deposit codes are 16 hex chars. Players paste them into a /pay memo along
 // with whatever else they type, so we extract rather than compare.
@@ -156,6 +157,16 @@ export async function creditPosting(db, item, { source = "feed" } = {}) {
       item.settledAt
     )
     .run();
+
+  // Tell the company if money landed in a business account. Never throws.
+  if (usable && account.owner_business_id) {
+    await bizhooks.fire(db, account.owner_business_id, "deposit.received", {
+      account_id: account.id,
+      memo: item.memo || null,
+      payer_uuid: item.initiatorUuid || null,
+      ...bizhooks.amountFields(item.amountCents),
+    });
+  }
 
   return {
     credited: true,

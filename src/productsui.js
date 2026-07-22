@@ -2,6 +2,7 @@
 
 import * as ledger from "./ledger.js";
 import * as products from "./products.js";
+import * as directdebits from "./directdebits.js";
 import { parseUserAmount } from "./money.js";
 import { esc, html, layout, money, shortDate, notice, redirect } from "./views.js";
 
@@ -212,6 +213,103 @@ export async function pageScheduled(env, db, user, message = "") {
     </div>
   </section>`;
   return html(layout("Scheduled", body, { user, active: "scheduled" }));
+}
+
+// ---------------------------------------------------------------------------
+// direct debits, payer side
+// ---------------------------------------------------------------------------
+export async function pageDebits(env, db, user, message = "") {
+  const [accounts, mandates] = await Promise.all([
+    ledger.listUserAccounts(db, user.id),
+    directdebits.listForPayer(db, user.id),
+  ]);
+
+  const usable = accounts.filter((a) => a.status === "active" && !a.cd_matures_at);
+
+  const rows = mandates.length
+    ? mandates
+        .map(
+          (d) => `<tr>
+            <td>${esc(d.company || "company")}
+              <div class="muted small">${esc(d.reference || "no reference")}</div></td>
+            <td>${esc(d.from_label || "account")}</td>
+            <td class="num">${money(d.max_cents)}</td>
+            <td class="muted small">${
+              d.last_pulled_at ? `last ${shortDate(d.last_pulled_at).slice(0, 10)}` : "never used"
+            }<div>${money(d.total_pulled_cents)} total</div></td>
+            <td style="text-align:right">
+              <form method="POST" action="/app/debits">
+                <input type="hidden" name="action" value="revoke">
+                <input type="hidden" name="id" value="${d.id}">
+                <button class="btn ghost sm" type="submit">Cancel</button>
+              </form>
+            </td>
+          </tr>`
+        )
+        .join("")
+    : `<tr><td colspan="5" class="muted">No direct debits set up.</td></tr>`;
+
+  const options = usable
+    .map((a) => `<option value="${a.id}">${esc(a.label || a.kind)} - ${money(a.balance_cents)}</option>`)
+    .join("");
+
+  const body = `<section>
+    <h1>Direct debits</h1>
+    <p class="muted">Let a company collect payments from your account, up to a limit you set.</p>
+    ${message}
+
+    <div class="card" style="margin-top:16px">
+      <table><thead><tr><th>Company</th><th>From</th>
+        <th style="text-align:right">Max per collection</th><th>Activity</th><th></th></tr></thead>
+        <tbody>${rows}</tbody></table>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Authorise a company</h3>
+      <form method="POST" action="/app/debits">
+        <input type="hidden" name="action" value="create">
+        <div class="field"><label>Pay from</label><select name="from_id" required>${options}</select></div>
+        <div class="field"><label>Company name, as registered with us</label>
+          <input name="firm" required maxlength="40"></div>
+        <div class="field"><label>Most they can take in one collection</label>
+          <input name="max" placeholder="0.00" inputmode="decimal" required></div>
+        <div class="field"><label>What it is for</label><input name="reference" maxlength="80"></div>
+        <button class="btn" type="submit">Authorise</button>
+      </form>
+    </div>
+
+    ${notice(
+      `You are in control. They can never take more than your limit in one go, you can cancel
+       instantly at any time without asking them, and a collection that would overdraw you is
+       refused rather than putting you in the red.`
+    )}
+  </section>`;
+  return html(layout("Direct debits", body, { user, active: "debits" }));
+}
+
+export async function doDebits(env, db, user, request) {
+  const form = await request.formData();
+  const action = String(form.get("action") || "");
+
+  try {
+    if (action === "revoke") {
+      await directdebits.revoke(db, user, parseInt(form.get("id"), 10));
+      return await pageDebits(env, db, user, notice("Direct debit cancelled.", "good"));
+    }
+
+    const parsed = parseUserAmount(form.get("max"), { min: 1 });
+    if (parsed.error) throw new Error(parsed.error);
+
+    await directdebits.createMandate(db, user, {
+      fromAccountId: parseInt(form.get("from_id"), 10),
+      firmName: form.get("firm"),
+      maxCents: parsed.cents,
+      reference: form.get("reference"),
+    });
+    return await pageDebits(env, db, user, notice("Authorised.", "good"));
+  } catch (err) {
+    return await pageDebits(env, db, user, notice(esc(err.message), "bad"));
+  }
 }
 
 export async function doScheduled(env, db, user, request) {

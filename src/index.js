@@ -21,6 +21,8 @@ import * as productsui from "./productsui.js";
 import * as payroll from "./payroll.js";
 import * as approvalsui from "./approvalsui.js";
 import * as approvals from "./approvals.js";
+import * as lending from "./lending.js";
+import * as lendingui from "./lendingui.js";
 import { formatCents } from "./money.js";
 
 const json = (obj, status = 200) =>
@@ -193,8 +195,14 @@ export default {
           if (path === "/app/scheduled") return await productsui.doScheduled(env, env.DB, user, request);
           if (path === "/app/goal") return await productsui.doSetGoal(env, env.DB, user, request);
           if (path === "/app/alerts") return await customer.doSetAlert(env, env.DB, user, request);
+          if (path === "/app/debits") return await productsui.doDebits(env, env.DB, user, request);
           if (path === "/app/approvals") return await approvalsui.doApproval(env, env.DB, user, request);
           if (path === "/app/joint") return await approvalsui.doJoint(env, env.DB, user, request);
+          if (path === "/app/borrow") return await lendingui.doBorrow(env, env.DB, user, request);
+
+          let lm;
+          if ((lm = path.match(/^\/app\/loan\/([0-9a-f]+)$/)))
+            return await lendingui.doSignLoan(env, env.DB, user, lm[1]);
 
           let bm;
           if ((bm = path.match(/^\/app\/business\/(\d+)\/members$/)))
@@ -203,6 +211,10 @@ export default {
             return await businessui.doSetTier(env, env.DB, user, parseInt(bm[1], 10), request);
           if ((bm = path.match(/^\/app\/business\/(\d+)\/pay$/)))
             return await businessui.doBusinessPay(env, env.DB, user, parseInt(bm[1], 10), request);
+          if ((bm = path.match(/^\/app\/business\/(\d+)\/hooks$/)))
+            return await businessui.doHooks(env, env.DB, user, parseInt(bm[1], 10), request);
+          if ((bm = path.match(/^\/app\/business\/(\d+)\/collect$/)))
+            return await businessui.doCollect(env, env.DB, user, parseInt(bm[1], 10), request);
           if ((bm = path.match(/^\/app\/business\/(\d+)\/payroll$/)))
             return await businessui.doPayroll(env, env.DB, user, parseInt(bm[1], 10), request);
           if ((bm = path.match(/^\/app\/business\/(\d+)\/logo$/)))
@@ -222,7 +234,11 @@ export default {
         if (path === "/app/business") return await businessui.pageBusinessList(env, env.DB, user);
         if (path === "/app/savings") return await productsui.pageSavings(env, env.DB, user);
         if (path === "/app/scheduled") return await productsui.pageScheduled(env, env.DB, user);
+        if (path === "/app/debits") return await productsui.pageDebits(env, env.DB, user);
         if (path === "/app/approvals") return await approvalsui.pageApprovals(env, env.DB, user);
+        if (path === "/app/borrow") return await lendingui.pageBorrowing(env, env.DB, user);
+        if ((m = path.match(/^\/app\/loan\/([0-9a-f]+)$/)))
+          return await lendingui.pageSignLoan(env, env.DB, user, m[1]);
 
         let m;
         if ((m = path.match(/^\/app\/business\/(\d+)$/)))
@@ -254,6 +270,7 @@ export default {
           if (path === "/admin/settings") return await admin.doSettings(env, db, user, request);
           if (path === "/admin/webhooks") return await admin.doWebhookAction(env, db, user, request);
           if (path === "/admin/approvals") return await approvalsui.doStaffApproval(env, db, user, request);
+          if (path === "/admin/lending") return await lendingui.doLendingAdmin(env, db, user, request);
 
           let am;
           if ((am = path.match(/^\/admin\/customer\/(\d+)$/)))
@@ -277,6 +294,7 @@ export default {
         if (path === "/admin/settings") return await admin.pageSettings(env, db, user);
         if (path === "/admin/webhooks") return await admin.pageWebhooks(env, db, user);
         if (path === "/admin/approvals") return await approvalsui.pageStaffApprovals(env, db, user);
+        if (path === "/admin/lending") return await lendingui.pageLendingAdmin(env, db, user);
         if (path === "/admin/audit") return await admin.pageAudit(env, db, user);
 
         let ap;
@@ -413,6 +431,19 @@ export default {
             if (res && res.paid) console.log("interest run:", JSON.stringify(res));
           } catch (err) {
             console.error("interest run failed:", err.message);
+          }
+
+          // Loan and credit interest. Only the first three days of the month,
+          // and guarded per loan/card per period, so repeated runs cannot
+          // charge twice. Dormant while nothing is lent.
+          if (now.getUTCDate() <= 3) {
+            try {
+              const li = await lending.accrueLoanInterest(env.DB);
+              const ci = await lending.accrueCardInterest(env.DB);
+              if (li.charged || ci.charged) console.log("lending interest:", JSON.stringify({ li, ci }));
+            } catch (err) {
+              console.error("lending interest failed:", err.message);
+            }
           }
 
           // Monthly tier fees. Same guarantees as interest: a UNIQUE

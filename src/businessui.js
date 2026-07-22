@@ -7,6 +7,8 @@
 import * as ledger from "./ledger.js";
 import * as biz from "./business.js";
 import * as payrollLib from "./payroll.js";
+import * as directdebits from "./directdebits.js";
+import * as bizhooks from "./bizhooks.js";
 import { parseUserAmount } from "./money.js";
 import { esc, html, layout, money, signedMoney, shortDate, notice, redirect, payCommand } from "./views.js";
 
@@ -146,6 +148,58 @@ export async function pageBusiness(env, db, user, businessId, message = "") {
     payrollLib.listSalaries(db, businessId),
     payrollLib.payrollTotal(db, businessId),
   ]);
+
+  const hooks = await bizhooks.list(db, businessId);
+  const hookRows = hooks
+    .map(
+      (h) => `<tr>
+        <td class="small" style="word-break:break-all">${esc(h.url)}</td>
+        <td>${
+          h.active
+            ? `<span class="pill good">active</span>`
+            : `<span class="pill bad">off</span>`
+        }${h.failures ? `<div class="muted small">${h.failures} failures</div>` : ""}
+          ${h.last_error ? `<div class="muted small">${esc(String(h.last_error).slice(0, 40))}</div>` : ""}</td>
+        <td class="small" style="word-break:break-all"><code>${esc(h.secret)}</code></td>
+        <td style="text-align:right;white-space:nowrap">
+          ${
+            !h.active
+              ? `<form method="POST" action="/app/business/${businessId}/hooks" style="display:inline">
+                   <input type="hidden" name="action" value="reactivate">
+                   <input type="hidden" name="id" value="${h.id}">
+                   <button class="btn ghost sm" type="submit">Re-enable</button>
+                 </form>`
+              : ""
+          }
+          <form method="POST" action="/app/business/${businessId}/hooks" style="display:inline">
+            <input type="hidden" name="action" value="remove">
+            <input type="hidden" name="id" value="${h.id}">
+            <button class="btn ghost sm" type="submit">Delete</button>
+          </form>
+        </td></tr>`
+    )
+    .join("");
+
+  const mandates = await directdebits.listForBusiness(db, businessId);
+  const ddCapLabel = effective.maxDirectDebits === Infinity ? "unlimited" : effective.maxDirectDebits;
+
+  const mandateRows = mandates
+    .map(
+      (m) => `<tr>
+        <td>${esc(m.mc_username || m.discord_username || "unknown")}
+          <div class="muted small">${esc(m.reference || "no reference")}</div></td>
+        <td class="num">${money(m.max_cents)}</td>
+        <td>
+          <form method="POST" action="/app/business/${businessId}/collect"
+                style="display:flex;gap:6px;flex-wrap:wrap">
+            <input type="hidden" name="mandate_id" value="${m.id}">
+            <input name="amount" placeholder="0.00" inputmode="decimal" style="width:110px" required>
+            <input name="reference" placeholder="invoice-2026-07" style="width:150px" required>
+            <button class="btn sm" type="submit">Collect</button>
+          </form>
+        </td></tr>`
+    )
+    .join("");
 
   const salaryRows = salaries
     .map(
@@ -307,6 +361,27 @@ export async function pageBusiness(env, db, user, businessId, message = "") {
         : ""
     }
 
+    ${
+      canMoney
+        ? `<div class="card" style="margin-top:16px">
+            <h3>Direct debits (${mandates.length} of ${ddCapLabel})</h3>
+            <p class="muted small" style="margin-top:0">Customers authorise you to collect from
+            their account. You cannot create these yourself, they set them up and can cancel at
+            any time.</p>
+            ${
+              mandates.length
+                ? `<table><thead><tr><th>Customer</th><th style="text-align:right">Max</th>
+                     <th>Collect</th></tr></thead><tbody>${mandateRows}</tbody></table>`
+                : `<p class="muted small">Nobody has authorised you yet. Ask them to add
+                   <b>${esc(b.firm_name)}</b> under Direct debits.</p>`
+            }
+            <p class="muted small">Use a reference that identifies the collection, like
+            <code>invoice-2026-07</code>. Repeating a reference will not take the money twice,
+            which is what makes retrying a failed collection safe.</p>
+          </div>`
+        : ""
+    }
+
     <div class="card" style="margin-top:16px">
       <h3>People (${employeeCount} of ${capLabel})</h3>
       ${memberRows}
@@ -355,6 +430,34 @@ export async function pageBusiness(env, db, user, businessId, message = "") {
                     </div>
                   </form>
                 </div>${LOGO_SCRIPT}`
+              : ""
+          }
+
+          ${
+            biz.effectiveTier(b).webhooks
+              ? `<div class="card" style="margin-top:16px">
+                  <h3>Webhooks</h3>
+                  <p class="muted small" style="margin-top:0">We POST a signed JSON payload to
+                  your URL when money moves on this company's account. Events:
+                  <code>deposit.received</code>, <code>direct_debit.collected</code>,
+                  <code>payroll.run</code>.</p>
+                  ${
+                    hooks.length
+                      ? `<table><thead><tr><th>URL</th><th>Status</th><th>Secret</th><th></th></tr></thead>
+                         <tbody>${hookRows}</tbody></table>`
+                      : `<p class="muted small">None set up.</p>`
+                  }
+                  <form method="POST" action="/app/business/${businessId}/hooks" style="margin-top:14px">
+                    <input type="hidden" name="action" value="add">
+                    <div class="field"><label>URL (must be https)</label>
+                      <input name="url" placeholder="https://example.com/ze-bank" required></div>
+                    <button class="btn ghost sm" type="submit">Add webhook</button>
+                  </form>
+                  <p class="muted small">Verify calls are really from us: the
+                  <code>x-ze-signature</code> header is
+                  <code>sha256=HMAC-SHA256(secret, raw body)</code>. A webhook that fails 10
+                  times in a row is switched off automatically.</p>
+                </div>`
               : ""
           }
 
@@ -564,6 +667,67 @@ export async function doPayroll(env, db, user, businessId, request) {
     }
 
     return redirect(`/app/business/${businessId}`);
+  } catch (err) {
+    return await pageBusiness(env, db, user, businessId, notice(esc(err.message), "bad"));
+  }
+}
+
+export async function doHooks(env, db, user, businessId, request) {
+  const form = await request.formData();
+  const action = String(form.get("action") || "");
+
+  try {
+    const { b } = await requireRole(db, user, businessId, true);
+
+    if (action === "add") {
+      const res = await bizhooks.register(db, b, user, form.get("url"));
+      return await pageBusiness(
+        env, db, user, businessId,
+        notice(
+          `Webhook added. Signing secret: <code>${esc(res.secret)}</code> - use it to verify
+           the <code>x-ze-signature</code> header.`,
+          "good"
+        )
+      );
+    }
+    if (action === "remove") {
+      await bizhooks.remove(db, b, user, parseInt(form.get("id"), 10));
+      return await pageBusiness(env, db, user, businessId, notice("Webhook deleted.", "good"));
+    }
+    if (action === "reactivate") {
+      await bizhooks.reactivate(db, b, parseInt(form.get("id"), 10));
+      return await pageBusiness(env, db, user, businessId, notice("Webhook re-enabled.", "good"));
+    }
+    return redirect(`/app/business/${businessId}`);
+  } catch (err) {
+    return await pageBusiness(env, db, user, businessId, notice(esc(err.message), "bad"));
+  }
+}
+
+export async function doCollect(env, db, user, businessId, request) {
+  const form = await request.formData();
+  try {
+    await requireRole(db, user, businessId);
+
+    const parsed = parseUserAmount(form.get("amount"), { min: 1 });
+    if (parsed.error) throw new Error(parsed.error);
+
+    const res = await directdebits.pull(db, user, {
+      mandateId: parseInt(form.get("mandate_id"), 10),
+      amountCents: parsed.cents,
+      reference: form.get("reference"),
+    });
+
+    if (res.duplicate) {
+      return await pageBusiness(
+        env, db, user, businessId,
+        notice("That reference has already been collected. Nothing was taken twice.", "warn")
+      );
+    }
+    return await pageBusiness(
+      env, db, user, businessId,
+      notice(`Collected ${money(parsed.cents)}.`, "good")
+    );
   } catch (err) {
     return await pageBusiness(env, db, user, businessId, notice(esc(err.message), "bad"));
   }

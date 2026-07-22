@@ -19,6 +19,7 @@
 
 import * as ledger from "./ledger.js";
 import * as biz from "./business.js";
+import * as bizhooks from "./bizhooks.js";
 import { assertCents, sumCents } from "./money.js";
 
 export function currentPeriod(now = new Date()) {
@@ -192,6 +193,18 @@ export async function runPayroll(db, business, { period = null, now = new Date()
     targetId: business.id,
     detail: `${target}: paid ${paid}, total ${totalCents} cents, ${failures.length} failed`,
   });
+
+  // One summary event rather than one per employee. A fifty person payroll
+  // firing fifty webhooks would turn a quick internal run into a long series
+  // of outbound HTTP calls.
+  if (paid > 0) {
+    await bizhooks.fire(db, business.id, "payroll.run", {
+      period: target,
+      employees_paid: paid,
+      failures: failures.length,
+      ...bizhooks.amountFields(totalCents),
+    });
+  }
 
   return { period: target, paid, skipped: failures.length, totalCents, failures };
 }

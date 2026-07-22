@@ -83,7 +83,48 @@ export async function pageDashboard(env, db, user, message = "") {
           : ""
       }`;
   } catch (err) {
-    solvencyBlock = notice(`Can't read the Treasury balance: ${esc(err.message)}`, "bad");
+    // The DemocracyCraft API is down or unreachable. Rather than showing
+    // nothing, fall back to the last reconciliation, clearly labelled with
+    // when it was taken. Stale figures are useful; unlabelled stale figures
+    // are dangerous, so the timestamp is not optional.
+    const last = await db
+      .prepare(`SELECT * FROM reconciliations ORDER BY id DESC LIMIT 1`)
+      .first();
+
+    const liabRow = await db
+      .prepare(
+        `SELECT COALESCE(SUM(balance_cents),0) AS total FROM accounts
+          WHERE kind IN ('checking','savings')`
+      )
+      .first();
+
+    solvencyBlock =
+      notice(
+        `<b>The DemocracyCraft economy API is not responding</b> (${esc(err.message)}).
+         This is their outage, not the bank's. Deposits will catch up automatically and
+         withdrawals are refused rather than half completed, so nothing is lost.`,
+        "bad"
+      ) +
+      (last
+        ? `<div class="cards c3" style="margin-top:16px">
+             <div class="card">
+               <div class="muted small">Held at Treasury</div>
+               <div class="balance">${money0(last.treasury_cents)}</div>
+               <div class="muted small">as of ${shortDate(last.created_at)}</div>
+             </div>
+             <div class="card">
+               <div class="muted small">Owed to customers</div>
+               <div class="balance">${money0(liabRow ? liabRow.total : 0)}</div>
+               <div class="muted small">live, from our own books</div>
+             </div>
+             <div class="card">
+               <div class="muted small">Equity at last check</div>
+               <div class="balance ${last.treasury_cents - last.liabilities_cents < 0 ? "bad" : "good"}">
+                 ${money0(last.treasury_cents - last.liabilities_cents)}</div>
+               <div class="muted small">stale, do not act on this</div>
+             </div>
+           </div>`
+        : `<p class="muted">No previous reconciliation to fall back on.</p>`);
   }
 
   const [needReview, unmatched, lastRecon, paused] = await Promise.all([
@@ -179,6 +220,7 @@ export async function pageDashboard(env, db, user, message = "") {
       <h3>Tools</h3>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
         <a class="btn ghost sm" href="/admin/approvals">Approvals</a>
+        <a class="btn ghost sm" href="/admin/lending">Lending</a>
         <a class="btn ghost sm" href="/admin/customers">Customers</a>
         <a class="btn ghost sm" href="/admin/businesses">Companies</a>
         <a class="btn ghost sm" href="/admin/adjust">Manual entry</a>
@@ -773,10 +815,13 @@ export async function pageReconciliation(env, db, user, message = "") {
 // settings
 // ---------------------------------------------------------------------------
 export async function pageSettings(env, db, user, message = "") {
-  const [ratio, savings, paused] = await Promise.all([
+  const [ratio, savings, paused, cd, loan, credit] = await Promise.all([
     ledger.getSetting(db, "reserve_ratio_bps", "10000"),
     ledger.getSetting(db, "savings_rate_bps", "200"),
     ledger.getSetting(db, "withdrawals_paused", "0"),
+    ledger.getSetting(db, "cd_rate_bps", "300"),
+    ledger.getSetting(db, "loan_rate_bps", "400"),
+    ledger.getSetting(db, "credit_rate_bps", "500"),
   ]);
 
   const setting = (key, label, value, help) => `
@@ -798,12 +843,21 @@ export async function pageSettings(env, db, user, message = "") {
     ${message}
     ${setting(
       "reserve_ratio_bps",
-      "Reserve ratio (basis points)",
+      "Reserve ratio (basis points) - THIS is the lending switch",
       ratio,
-      `10000 = 100% = fully reserved; the bank holds every coin it owes and cannot lend.
-       Lowering this permits lending customer deposits and makes a bank run possible.
-       Currently <b>${(Number(ratio) / 100).toFixed(1)}%</b>. This change is audited.`
+      `10000 = 100% = fully reserved; the bank holds every coin it owes and cannot lend, so
+       loans and credit cards are switched OFF. Lowering it below 10000 turns lending ON
+       automatically and sets how much can be lent: the gap between what the bank holds and
+       this floor. Lowering it also makes a bank run possible, because customer deposits are
+       then being lent out. Currently <b>${(Number(ratio) / 100).toFixed(1)}%</b>, lending is
+       <b>${Number(ratio) >= 10000 ? "OFF" : "ON"}</b>. Audited.`
     )}
+    ${setting("cd_rate_bps", "Fixed deposit rate (bps/month)", cd,
+      `Base rate for new fixed deposits. 300 = 3.00%. Business tiers add a bonus on top.`)}
+    ${setting("loan_rate_bps", "Standard loan rate (bps/month)", loan,
+      `Base loan rate. 400 = 4.00%. Gold takes 0.5% off, Platinum 1.5% off, automatically.`)}
+    ${setting("credit_rate_bps", "Credit card rate (bps/month)", credit,
+      `Monthly interest on card balances. 500 = 5.00%, as specified.`)}
     ${setting(
       "savings_rate_bps",
       "Savings interest (basis points per month)",
@@ -828,7 +882,11 @@ export async function doSettings(env, db, user, request) {
   const key = String(form.get("key"));
   const value = String(form.get("value")).trim();
 
-  if (!["reserve_ratio_bps", "savings_rate_bps", "withdrawals_paused"].includes(key)) {
+  if (
+    !["reserve_ratio_bps", "savings_rate_bps", "withdrawals_paused", "cd_rate_bps", "loan_rate_bps", "credit_rate_bps"].includes(
+      key
+    )
+  ) {
     return redirect("/admin/settings");
   }
   if (!/^\d+$/.test(value)) {
